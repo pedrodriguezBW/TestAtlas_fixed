@@ -1,0 +1,36 @@
+{
+  "name": "test-atlas",
+  "private": true,
+  "version": "1.1.0",
+  "description": "Test Atlas: organizes climatic test files, photographic evidence and measurement data into the standard folder structure of the project repository.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:server": "node --test server/server.test.mjs",
+    "start": "node server/server.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mantine/core": "^9.6.1",
+    "express": "5.2.1",
+    "http-proxy-middleware": "4.2.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^29.1.1",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  }
+}

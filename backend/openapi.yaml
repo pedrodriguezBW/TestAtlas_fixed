@@ -1,0 +1,428 @@
+openapi: 3.0.3
+info:
+  title: Test Atlas Backend
+  version: 1.0.0-SNAPSHOT
+  description: >
+    Standalone Test Atlas backend. The save is the TEST_ATLAS algorithm, run through
+    the generic algorithm endpoint, which streams newline-delimited JSON (NDJSON)
+    messages. The auxiliary /api/test-atlas endpoints review the plan, stage the
+    uploads and read the project repository before the run.
+    Static frontend builds may call the backend directly using VITE_BACKEND_URL.
+    Cross-origin requests are allowed only from configured testatlas.frontend-origins.
+servers:
+  - url: /
+    description: Backend origin, or same-origin API when a frontend proxy is used
+tags:
+  - name: scripts
+    description: Algorithm (TEST_ATLAS) catalogue and execution
+  - name: test-atlas
+    description: Test Atlas review, staging uploads and repository lookups
+
+paths:
+  /api/scripts:
+    get:
+      tags: [scripts]
+      summary: List registered algorithm keys
+      operationId: listAlgorithms
+      responses:
+        '200':
+          description: Registered algorithm keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/scripts/versions:
+    get:
+      tags: [scripts]
+      summary: List backend-owned algorithm versions
+      operationId: listAlgorithmVersions
+      responses:
+        '200':
+          description: Versions declared by each registered executable algorithm, keyed by algorithm ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+              example:
+                TEST_ATLAS: '1.0'
+
+  /api/scripts/{key}:
+    post:
+      tags: [scripts]
+      summary: Run an algorithm, streaming NDJSON progress/result/error messages
+      operationId: runAlgorithm
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: >
+                Algorithm-specific configuration record. For key TEST_ATLAS see
+                TestAtlasConfig (result TestAtlasResult); its file contents are staged
+                beforehand through /api/test-atlas/uploads.
+                Results are returned inside the NDJSON result message's data.
+      responses:
+        '200':
+          description: >
+            NDJSON stream. Each line is one of: progress, result, or error.
+            On failure an error message is emitted; the HTTP status stays 200.
+          content:
+            application/x-ndjson:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ProgressMessage'
+                  - $ref: '#/components/schemas/ResultMessage'
+                  - $ref: '#/components/schemas/ErrorMessage'
+
+  /api/test-atlas/plan:
+    post:
+      tags: [test-atlas]
+      summary: Review a Test Atlas save without writing anything
+      operationId: planTestAtlas
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TestAtlasConfig' }
+      responses:
+        '200':
+          description: Planned folders, final file names, generated descriptors, renamed folders and conflicts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestAtlasPlan' }
+        '400': { description: Invalid manifest, with a user-facing message. }
+        '409': { description: The repository changed since the evidence folders were loaded. }
+
+  /api/test-atlas/uploads:
+    post:
+      tags: [test-atlas]
+      summary: Open a staging upload for the files of a reviewed Test Atlas plan
+      operationId: createTestAtlasUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TestAtlasConfig' }
+      responses:
+        '200':
+          description: Identifier to pass as uploadId when running TEST_ATLAS.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestAtlasUpload' }
+        '400': { description: Invalid manifest. }
+
+  /api/test-atlas/uploads/{uploadId}/files/{fileId}:
+    post:
+      tags: [test-atlas]
+      summary: Stage one reviewed file (raw request body)
+      operationId: uploadTestAtlasFile
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string } }
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '200': { description: Stored; the byte count matched the reviewed size. }
+        '400': { description: Size differs from the review, or test_metadata.json is not valid JSON. }
+        '404': { description: Unknown upload or file identifier. }
+
+  /api/test-atlas/uploads/{uploadId}/cancel:
+    post:
+      tags: [test-atlas]
+      summary: Discard a staging upload
+      operationId: cancelTestAtlasUpload
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Discarded (also when it no longer exists). }
+
+  /api/test-atlas/suggestions:
+    get:
+      tags: [test-atlas]
+      summary: Program, phase, test and batch names already present in the repository
+      operationId: testAtlasSuggestions
+      parameters:
+        - { name: testType, in: query, schema: { type: string, enum: [climatic, vibration] } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: program, in: query, schema: { type: string } }
+        - { name: phase, in: query, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestAtlasSuggestions' }
+          description: Up to 30 matching programs; phases, tests (climatic) or batches (vibration).
+
+  /api/test-atlas/climatic/existing-inputs:
+    get:
+      tags: [test-atlas]
+      summary: Inputs workbooks already saved in a climatic test
+      operationId: testAtlasExistingInputs
+      parameters:
+        - { name: programNumber, in: query, required: true, schema: { type: string } }
+        - { name: programName, in: query, required: true, schema: { type: string } }
+        - { name: phase, in: query, required: true, schema: { type: string } }
+        - { name: testNumber, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestAtlasWorkbooks' }
+          description: Workbook file names in 01_Inputs.
+
+  /api/test-atlas/climatic/test-state:
+    get:
+      tags: [test-atlas]
+      summary: Everything already saved for a climatic test
+      operationId: testAtlasTestState
+      parameters:
+        - { name: programNumber, in: query, required: true, schema: { type: string } }
+        - { name: programName, in: query, required: true, schema: { type: string } }
+        - { name: phase, in: query, required: true, schema: { type: string } }
+        - { name: testNumber, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestAtlasTestState' }
+          description: Workbooks, metadata presence and saved evidence checkpoints with their photos.
+
+  /api/test-atlas/climatic/evidence-photo:
+    get:
+      tags: [test-atlas]
+      summary: One saved evidence photo, for thumbnails
+      operationId: testAtlasEvidencePhoto
+      parameters:
+        - { name: programNumber, in: query, required: true, schema: { type: string } }
+        - { name: programName, in: query, required: true, schema: { type: string } }
+        - { name: phase, in: query, required: true, schema: { type: string } }
+        - { name: testNumber, in: query, required: true, schema: { type: string } }
+        - { name: folder, in: query, required: true, schema: { type: string } }
+        - { name: name, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The image bytes (jpeg, png, webp, gif, bmp or avif).
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        '404': { description: Not a previewable saved photo. }
+
+  /api/test-atlas/vibration/sample-inputs:
+    get:
+      tags: [test-atlas]
+      summary: Inputs workbooks detected in a vibration sample folder
+      operationId: testAtlasSampleInputs
+      parameters:
+        - { name: programNumber, in: query, required: true, schema: { type: string } }
+        - { name: programName, in: query, required: true, schema: { type: string } }
+        - { name: phase, in: query, required: true, schema: { type: string } }
+        - { name: batchName, in: query, required: true, schema: { type: string } }
+        - { name: testCode, in: query, required: true, schema: { type: string } }
+        - { name: testType, in: query, required: true, schema: { type: string } }
+        - { name: axis, in: query, required: true, schema: { type: string } }
+        - { name: materialMasterCode, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestAtlasWorkbooks' }
+          description: Workbook file names in the sample folder.
+
+
+components:
+  schemas:
+    TestAtlasFileEntry:
+      type: object
+      required: [id, name, size]
+      properties:
+        id: { type: string, description: Browser-generated identifier, 12-80 hex characters and dashes. }
+        name: { type: string }
+        category: { type: string, enum: [inputs, simpati, graphtec, canoe, metadata], description: Climatic files only. }
+        size: { type: integer, format: int64, minimum: 0 }
+        mime: { type: string }
+        captureDate: { type: string, description: Evidence photos only, YYYY-MM-DDTHH:MM:SS. }
+        dateSource: { type: string, enum: [metadata, modified, test] }
+    TestAtlasEvidenceSet:
+      type: object
+      required: [id, type, title]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [initial, planned_inspection, unplanned_stop, incident, restart, final, other] }
+        title: { type: string }
+        referenceType: { type: string, enum: [cycles, hours, stage, date_time, none] }
+        referenceValue: { type: string }
+        notes: { type: string }
+        existingFolder: { type: string, description: Saved folder being reordered (NN_Name). }
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/TestAtlasFileEntry' }
+    TestAtlasMaterialMaster:
+      type: object
+      required: [id, materialMasterCode]
+      properties:
+        id: { type: string }
+        materialMasterCode: { type: string }
+        hasIncidents: { type: boolean }
+        inputsWorkbook: { $ref: '#/components/schemas/TestAtlasFileEntry' }
+        existingWorkbook: { type: string }
+        photos: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
+        results: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
+        characterization: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
+        incidentFiles: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
+    TestAtlasVibrationTest:
+      type: object
+      required: [id, testCode, testType, axis, materialMasters]
+      properties:
+        id: { type: string }
+        testCode: { type: string }
+        testType: { type: string }
+        axis: { type: string }
+        materialMasters:
+          type: array
+          items: { $ref: '#/components/schemas/TestAtlasMaterialMaster' }
+    TestAtlasConfig:
+      type: object
+      description: >
+        Test Atlas manifest. testType selects the workflow: climatic uses testNumber,
+        date (YYMMDD), files and evidenceSets; vibration uses batchName, inputsWorkbook
+        and tests. File contents are staged through /api/test-atlas/uploads and
+        referenced by uploadId; approvedOverwrites lists reviewed conflicts that may
+        be replaced. Any other conflict fails the run with status 409 semantics.
+      required: [testType, programNumber, programName, phase]
+      properties:
+        testType: { type: string, enum: [climatic, vibration] }
+        programNumber: { type: string }
+        programName: { type: string }
+        phase: { type: string }
+        testNumber: { type: string }
+        date: { type: string, pattern: '^[0-9]{6}$' }
+        files: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
+        evidenceSets: { type: array, items: { $ref: '#/components/schemas/TestAtlasEvidenceSet' } }
+        batchName: { type: string }
+        inputsWorkbook: { $ref: '#/components/schemas/TestAtlasFileEntry' }
+        tests: { type: array, items: { $ref: '#/components/schemas/TestAtlasVibrationTest' } }
+        uploadId: { type: string, nullable: true }
+        approvedOverwrites: { type: array, items: { type: string } }
+    TestAtlasPlannedFile:
+      type: object
+      required: [id, name, category, size, relative, conflict]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string }
+        size: { type: integer, format: int64 }
+        relative: { type: string, description: Destination relative to the repository, Windows separators. }
+        conflict: { type: boolean }
+    TestAtlasRenamedFolder:
+      type: object
+      properties:
+        from: { type: string }
+        to: { type: string }
+    TestAtlasPlan:
+      type: object
+      required: [root, folder, directories, existingWorkbooks, generatedFiles, renamedFolders, files]
+      properties:
+        root: { type: string }
+        folder: { type: string }
+        directories: { type: array, items: { type: string } }
+        existingWorkbooks: { type: array, items: { type: string } }
+        generatedFiles: { type: array, items: { type: string } }
+        renamedFolders: { type: array, items: { $ref: '#/components/schemas/TestAtlasRenamedFolder' } }
+        files: { type: array, items: { $ref: '#/components/schemas/TestAtlasPlannedFile' } }
+    TestAtlasResult:
+      type: object
+      required: [folder, folderPath, saved, directories, generatedFiles, renamedFolders]
+      properties:
+        folder: { type: string }
+        folderPath: { type: string, description: Absolute path of the test or batch folder on the server. }
+        saved: { type: array, items: { type: string } }
+        directories: { type: array, items: { type: string } }
+        generatedFiles: { type: array, items: { type: string } }
+        renamedFolders: { type: array, items: { $ref: '#/components/schemas/TestAtlasRenamedFolder' } }
+    TestAtlasUpload:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+    TestAtlasWorkbooks:
+      type: object
+      required: [workbooks]
+      properties:
+        workbooks: { type: array, items: { type: string } }
+    TestAtlasSuggestions:
+      type: object
+      required: [programs, phases, tests, batches]
+      properties:
+        programs:
+          type: array
+          items:
+            type: object
+            properties:
+              number: { type: string }
+              name: { type: string }
+              folder: { type: string }
+        phases: { type: array, items: { type: string } }
+        tests: { type: array, items: { type: string } }
+        batches: { type: array, items: { type: string } }
+    TestAtlasTestState:
+      type: object
+      required: [workbooks, metadataExists, evidence]
+      properties:
+        workbooks: { type: array, items: { type: string } }
+        metadataExists: { type: boolean }
+        evidence:
+          type: array
+          items:
+            type: object
+            properties:
+              folder: { type: string }
+              type: { type: string }
+              title: { type: string }
+              referenceType: { type: string }
+              referenceValue: { type: string }
+              notes: { type: string }
+              photos:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    originalName: { type: string }
+                    size: { type: integer, format: int64 }
+                    captureDate: { type: string }
+                    dateSource: { type: string }
+                    preview: { type: boolean }
+    ProgressMessage:
+      type: object
+      properties:
+        type: { type: string, enum: [progress] }
+        current: { type: integer }
+        total: { type: integer }
+        message: { type: string }
+    ResultMessage:
+      type: object
+      properties:
+        type: { type: string, enum: [result] }
+        data: { type: object, description: Algorithm-specific output. }
+    ErrorMessage:
+      type: object
+      properties:
+        type: { type: string, enum: [error] }
+        message: { type: string }

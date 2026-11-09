@@ -1,0 +1,115 @@
+:root {
+  --navy: #082d6d;
+  --navy-deep: #052252;
+  --blue: #1257a6;
+  --ink: #17233a;
+  --muted: #5d687a;
+  --line: #d7dfeb;
+  --surface: #ffffff;
+  --canvas: #edf3fc;
+  font-family: Aptos, Calibri, sans-serif;
+  color: var(--ink);
+  background: var(--canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(90deg, rgba(18, 87, 166, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(18, 87, 166, 0.035) 1px, transparent 1px),
+    var(--canvas);
+  background-size: 28px 28px;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  min-height: 58px;
+  padding: 10px clamp(16px, 4vw, 48px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: #ffffff;
+  background: var(--navy-deep);
+  border-bottom: 3px solid #d9a928;
+}
+
+.brand-name {
+  margin: 0;
+  color: #ffffff;
+  font-family: Bahnschrift, Aptos, sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.header-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.bw-logo {
+  width: 148px;
+  height: 28px;
+  display: block;
+  object-fit: contain;
+}
+
+.app-version {
+  color: #dce8fa;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--navy-deep);
+  font-family: Bahnschrift, Aptos, sans-serif;
+  letter-spacing: 0;
+}
+
+.execution-heading {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Test Atlas already supplies its own internal surfaces and navigation. */
+.execution-form--test-atlas {
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 600px) {
+  .app-header {
+    min-height: 54px;
+  }
+
+  .header-tools {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .brand-name {
+    font-size: 15px;
+  }
+}

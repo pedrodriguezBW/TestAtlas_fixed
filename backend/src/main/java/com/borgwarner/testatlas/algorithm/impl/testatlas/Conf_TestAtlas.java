@@ -10,9 +10,10 @@ import java.util.List;
  * <p>The shape matches the JSON manifest of the original Test Atlas
  * ({@code POST /api/plan}): {@code testType} selects the workflow and the
  * remaining fields belong either to the climatic workflow ({@code testNumber},
- * {@code date}, {@code files}, {@code evidenceSets}) or to the vibration
- * workflow ({@code batchName}, {@code inputsWorkbook}, {@code tests}).
- * Fields of the other workflow are ignored.
+ * {@code files}, {@code evidenceSets}) or to the vibration workflow
+ * ({@code batchName}, {@code inputsWorkbook}, {@code tests}). {@code date}
+ * ({@code YYMMDD}) is used by both to name the inputs workbooks. Fields of the
+ * other workflow are ignored.
  *
  * <p>File contents never travel in this record. They are streamed beforehand
  * into the staging upload identified by {@code uploadId}
@@ -67,7 +68,7 @@ public record Conf_TestAtlas(
             List<FileEntry> files) {
     }
 
-    /** A vibration test ({@code testCode_testType_axis} folder) and its samples. */
+    /** A vibration test ({@code TEST - testCode - testType - axis} folder) and its samples. */
     public record VibrationTest(
             String id,
             String testCode,
@@ -77,19 +78,23 @@ public record Conf_TestAtlas(
     }
 
     /**
-     * A vibration sample (Material Master). Exactly one of {@code inputsWorkbook}
-     * (new upload) or {@code existingWorkbook} (file already in the sample
-     * folder) is expected.
+     * A vibration sample (Material Master, {@code MM - code} folder). Exactly one
+     * of {@code inputsWorkbook} (new upload, renamed) or {@code existingWorkbook}
+     * (file already in the sample's {@code 01_Inputs}) is expected.
+     * {@code evidenceSets} are the photo checkpoints of {@code 02_Evidences}
+     * (Initial first, Final last; photos keep their original names); results,
+     * characterization and CANoe files go to {@code 03_Data} and the optional
+     * {@code test_metadata.json} to {@code 04_Report}.
      */
     public record MaterialMaster(
             String id,
             String materialMasterCode,
-            Boolean hasIncidents,
             FileEntry inputsWorkbook,
             String existingWorkbook,
-            List<FileEntry> photos,
+            List<EvidenceSet> evidenceSets,
             List<FileEntry> results,
             List<FileEntry> characterization,
-            List<FileEntry> incidentFiles) {
+            List<FileEntry> canoe,
+            FileEntry metadata) {
     }
 }

@@ -1,7 +1,7 @@
 // Test Atlas illustrations: decorative SVG scenes, copy and facts of the visual
 // panel. Ported verbatim from climate-file-organizer/public/visuals.js; only the
 // SVG ids are prefixed (ta-) so they are unique inside the Toolbox page, and the
-// step 01 copy says that only the climatic workflow is available.
+// step 01 copy reflects the climatic and vibration workflows available here.
 
 /** Snapshot of the form that the panel illustrates (same shape as the original getState()). */
 export interface VisualState {
@@ -14,10 +14,10 @@ export interface VisualState {
     data: number[]
     total: number
     conflicts: number
-    /** Vibration workflow only (Coming soon in the Toolbox). */
+    /** Vibration workflow only. */
     testCount?: number
     sampleCount?: number
-    incidents?: number
+    canoe?: number
     currentTest?: string
     currentSample?: string
     sampleWorkbook?: string
@@ -32,7 +32,7 @@ const fileLabel = (count: number): string => `${count} ${count === 1 ? 'FILE' : 
 // turning every workflow step into a separate visual identity.
 export const palette = ['#d9a928', '#8eb7e5', '#d9a928', '#8eb7e5', '#d9a928', '#8eb7e5', '#d9a928'];
 export const stepCopy = [
-  ['AVAILABLE TEST TYPES', 'Test<br>category', 'CLIMATIC AVAILABLE / OTHER TYPES PLANNED'],
+  ['AVAILABLE TEST TYPES', 'Test<br>category', 'CLIMATIC + VIBRATION AVAILABLE'],
   ['DESTINATION SUMMARY', 'Test<br>details', 'PROGRAM → PHASE → TEST'],
   ['WORKBOOK SUMMARY', 'Inputs<br>workbook', '01_INPUTS / ORIGINAL EXTENSION'],
   ['EVIDENCE SUMMARY', 'Photo<br>evidence', '02_SETUP / PHOTOS BY TEST EVENT'],
@@ -42,28 +42,28 @@ export const stepCopy = [
 ];
 export const vibrationCopy = [stepCopy[0],
   ['BATCH DESTINATION', 'Vibration<br>batch', 'PROGRAM → PHASE → BATCH'],
-  ['BATCH WORKBOOK', 'General<br>inputs', 'BATCH LEVEL / ORIGINAL FILE NAME'],
+  ['BATCH WORKBOOK', 'General<br>inputs', 'BATCH LEVEL / DATE_VB_INPUTS NAME'],
   ['TEST STRUCTURE', 'Tests &<br>samples', 'BATCH → TEST → MATERIAL MASTER'],
-  ['SAMPLE FILE SUMMARY', 'Sample<br>files', 'INPUTS / PHOTOS / RESULTS / CHARACTERIZATION'],
+  ['SAMPLE FILE SUMMARY', 'Sample<br>files', 'INPUTS / EVIDENCES / DATA / REPORT'],
   stepCopy[5], ['SAVE RESULT', 'Save<br>complete', 'VIBRATION BATCH ORGANIZED']];
 
 export function summaryFor(state: VisualState) {
   const d = state.details;
-  if (state.step === 0) return 'Climatic tests are available. Vibration, EGR valve and wind tunnel workflows are planned.';
+  if (state.step === 0) return 'Climatic and vibration tests are available. EGR valve and wind tunnel workflows are planned.';
   if (state.testType === 'vibration') {
     switch (state.step) {
-      case 1: return `Program: ${[d.programNumber, d.programName].filter(Boolean).join('_') || 'not specified'}. Phase: ${d.phase || 'not specified'}. Batch: ${d.batchName || 'not specified'}.`;
-      case 2: return state.workbook ? `${state.workbook} will be saved directly in the batch, with its original name. Specific sample inputs are added in step 05.` : 'Select the general .xlsx or .xlsm inputs workbook for this batch.';
+      case 1: return `Program: ${[d.programNumber, d.programName].filter(Boolean).join(' - ') || 'not specified'}. Phase: ${d.phase || 'not specified'}. Batch: ${d.batchName ? `BATCH - ${d.batchName}` : 'not specified'}. Date: ${d.date || 'not specified'}.`;
+      case 2: return state.workbook ? `${state.workbook} will be renamed from the batch details and saved directly in the batch. Specific sample inputs are added in step 05.` : 'Select the general .xlsx or .xlsm inputs workbook for this batch.';
       case 3: return `${state.testCount} tests and ${state.sampleCount} Material Masters defined. Each sample belongs inside its test folder.`;
-      case 4: return `Test: ${state.currentTest}. Material Master: ${state.currentSample}. Inputs: ${state.sampleWorkbook || 'not selected'}. Photos: ${state.data[0]}. Results: ${state.data[1]}. Characterization: ${state.data[2]}. Incidents: ${state.incidents}.`;
+      case 4: return `Test: ${state.currentTest}. Material Master: ${state.currentSample}. Inputs: ${state.sampleWorkbook || 'not selected'}. Photos: ${state.data[0]}. Results: ${state.data[1]}. Characterization: ${state.data[2]}. CANoe: ${state.canoe ?? 0}.`;
       case 5: return `${state.total} files prepared across ${state.testCount} tests and ${state.sampleCount} samples. ${state.conflicts} existing-file conflicts require approval. Review the folder tree and authorize saving.`;
-      case 6: return `${state.total} files saved in the batch and its test/sample folders. Photos, results and characterization folders are available for every sample.`;
+      case 6: return `${state.total} files saved in the batch and its test/sample folders. Every sample has 01_Inputs, 02_Evidences, 03_Data and 04_Report.`;
     }
   }
   const checkpoints = Math.max(0, state.evidence.length - 2);
   switch (state.step) {
     case 0:
-      return 'Climatic tests are available. Vibration, EGR valve and wind tunnel workflows are planned.';
+      return 'Climatic and vibration tests are available. EGR valve and wind tunnel workflows are planned.';
     case 1:
       if (![d.programNumber, d.programName, d.phase, d.testNumber, d.date].some(Boolean)) {
         return 'Enter the program, phase, test number and date to define the destination folders.';
@@ -167,7 +167,7 @@ function vibrationArchiveScene() {
     <g class="scene-float" filter="url(#ta-shadow)">${folder(91, 26, 'blue', '01', .7)}</g>
     <g class="scene-float-late" filter="url(#ta-shadow)">${folder(160, 103, 'orange', '02', .7)}</g>
     <g class="scene-float" filter="url(#ta-shadow)">${folder(228, 179, 'lime', '03', .7)}</g>
-    ${label(265, 51, 'PHOTOS')}${label(321, 123, 'RESULTS')}${label(38, 307, '03_CARACTERIZACION / OPTIONAL 90_INCIDENCIAS')}
+    ${label(265, 51, 'EVIDENCES')}${label(321, 123, 'DATA')}${label(38, 307, '01_INPUTS / 02_EVIDENCES / 03_DATA / 04_REPORT')}
     <g class="scene-float-late">${paper(337, 163, 'blue', 'INPUTS', 8)}</g>`);
 }
 function archiveScene(state: VisualState) {
@@ -187,11 +187,11 @@ export function sceneFor(state: VisualState) {
 export function factsFor(state: VisualState) {
   const d = state.details;
   const fact = (value: string | number, text: string): string => `<span class="visual-fact"><strong>${escape(value)}</strong> ${escape(text)}</span>`;
-  if (state.step === 0) return fact('04', 'DISCIPLINES') + fact('01', 'AVAILABLE NOW');
+  if (state.step === 0) return fact('04', 'DISCIPLINES') + fact('02', 'AVAILABLE NOW');
   if (state.testType === 'vibration') {
     if (state.step === 1) return fact(d.programNumber || '—', short(d.programName || 'PROGRAM', 22)) + fact(d.phase || '—', 'PHASE') + fact(short(d.batchName || '—', 22), 'BATCH');
     if (state.step === 3) return fact(state.testCount ?? 0, 'TESTS') + fact(state.sampleCount ?? 0, 'MATERIAL MASTERS');
-    if (state.step === 4) return state.data.map((count: number, i: number) => fact(count, ['PHOTOS', 'RESULTS', 'CHARACTERIZATION'][i])).join('') + fact(state.incidents ?? 0, 'INCIDENT FILES');
+    if (state.step === 4) return state.data.map((count: number, i: number) => fact(count, ['PHOTOS', 'RESULTS', 'CHARACTERIZATION'][i])).join('') + fact(state.canoe ?? 0, 'CANOE FILES');
   }
   if (state.step === 1) return fact(d.programNumber || '—', short(d.programName || 'PROGRAM', 22)) + fact(d.phase || '—', 'PHASE') + fact(d.testNumber || '—', 'TEST');
   if (state.step === 2 && !state.workbook && state.existingWorkbook) return fact('✓', 'ALREADY SAVED') + fact(short(state.existingWorkbook, 36), '');

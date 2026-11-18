@@ -227,7 +227,7 @@ paths:
   /api/test-atlas/vibration/sample-inputs:
     get:
       tags: [test-atlas]
-      summary: Inputs workbooks detected in a vibration sample folder
+      summary: Inputs workbooks detected in the 01_Inputs folder of a vibration sample
       operationId: testAtlasSampleInputs
       parameters:
         - { name: programNumber, in: query, required: true, schema: { type: string } }
@@ -275,17 +275,21 @@ components:
           items: { $ref: '#/components/schemas/TestAtlasFileEntry' }
     TestAtlasMaterialMaster:
       type: object
-      required: [id, materialMasterCode]
+      description: >
+        Vibration sample, saved as "MM - <code>" with 01_Inputs, 02_Evidences
+        (00_Initial, NN_ checkpoints, 99_Final; photos keep their names), 03_Data
+        (01_Results, 02_Characterization, 03_CANoe) and 04_Report (test_metadata.json).
+      required: [id, materialMasterCode, evidenceSets]
       properties:
         id: { type: string }
         materialMasterCode: { type: string }
-        hasIncidents: { type: boolean }
         inputsWorkbook: { $ref: '#/components/schemas/TestAtlasFileEntry' }
-        existingWorkbook: { type: string }
-        photos: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
+        existingWorkbook: { type: string, description: Workbook already saved in the sample's 01_Inputs. }
+        evidenceSets: { type: array, items: { $ref: '#/components/schemas/TestAtlasEvidenceSet' }, description: Initial first, Final last. }
         results: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
         characterization: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
-        incidentFiles: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
+        canoe: { type: array, items: { $ref: '#/components/schemas/TestAtlasFileEntry' } }
+        metadata: { $ref: '#/components/schemas/TestAtlasFileEntry' }
     TestAtlasVibrationTest:
       type: object
       required: [id, testCode, testType, axis, materialMasters]
@@ -301,8 +305,8 @@ components:
       type: object
       description: >
         Test Atlas manifest. testType selects the workflow: climatic uses testNumber,
-        date (YYMMDD), files and evidenceSets; vibration uses batchName, inputsWorkbook
-        and tests. File contents are staged through /api/test-atlas/uploads and
+        date (YYMMDD), files and evidenceSets; vibration uses date (YYMMDD), batchName,
+        inputsWorkbook and tests and is saved in its own repository root. File contents are staged through /api/test-atlas/uploads and
         referenced by uploadId; approvedOverwrites lists reviewed conflicts that may
         be replaced. Any other conflict fails the run with status 409 semantics.
       required: [testType, programNumber, programName, phase]

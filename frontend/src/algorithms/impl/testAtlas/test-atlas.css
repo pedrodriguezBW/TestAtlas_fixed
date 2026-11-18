@@ -973,7 +973,15 @@
 .test-atlas .v-file-context small { font: 12px/1.65 var(--mono); color: #597254; overflow-wrap: anywhere; }
 .test-atlas .v-existing-inputs { grid-column: 1 / -1; line-height: 1.5; }
 .test-atlas .v-existing-inputs small { font-size: 14px; }
-.test-atlas .v-incident-toggle { margin: 22px 0; padding: 15px; background: #f6eee1; border: 1px solid #e2c5ae; border-radius: 3px; }
+.test-atlas .v-block-title { display: grid; gap: 4px; margin: 26px 0 6px; padding-top: 16px; border-top: 1px solid #d3ddcf; }
+.test-atlas .v-block-title strong { color: #294231; font: 600 14px/1.4 var(--mono); letter-spacing: .04em; }
+.test-atlas .v-block-title small { color: #627760; font-size: 13px; line-height: 1.5; }
+.test-atlas .v-evidence { display: grid; gap: 4px; }
+.test-atlas .v-checkpoint { padding: 4px 14px; border: 1px solid #d3ddcf; border-left: 3px solid #fd855c; border-radius: 3px; background: #f4f7f0; }
+.test-atlas .v-checkpoint[data-checkpoint="initial"], .test-atlas .v-checkpoint[data-checkpoint="final"] { border-left-color: #365aff; }
+.test-atlas .v-checkpoint-fields { margin-top: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
+.test-atlas .v-checkpoint-fields select { display: block; width: 100%; min-width: 0; margin-top: 8px; padding: 13px; border: 1px solid #c7d4c3; border-radius: 3px; color: #294231; background: #fffef9; font: inherit; }
+.test-atlas .v-evidence > .button { justify-self: start; margin-top: 8px; }
 .test-atlas .v-counts { font-size: 14px; line-height: 1.8; color: #50654c; }
 .test-atlas .review-tree { margin: 22px 0; min-width: 0; }
 .test-atlas .review-tree[hidden] { display: none; }
@@ -989,6 +997,7 @@
   .test-atlas .v-sample-row { grid-template-columns: 1fr; }
   .test-atlas .v-sample-row > label { grid-row: auto; }
   .test-atlas .v-context-selectors { grid-template-columns: 1fr; }
+  .test-atlas .v-checkpoint-fields { grid-template-columns: 1fr; }
   .test-atlas .review-tree pre { padding: 12px; }
 }
 .test-atlas .loading-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: #052252d9; backdrop-filter: blur(3px); animation: ta-loading-fade .18s ease-out both; }

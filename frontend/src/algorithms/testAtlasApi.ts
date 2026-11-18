@@ -113,11 +113,28 @@ export const fetchTestAtlasTestState = (details: TestDetails, signal?: AbortSign
     request<TestAtlasTestState>(`/api/test-atlas/climatic/test-state?${detailsQuery(details)}`, { method: 'GET' }, signal)
 
 /** Program, phase and test names already present in the repository. */
-export const fetchTestAtlasSuggestions = (query: { q: string; program?: string; phase?: string }, signal?: AbortSignal) => {
-    const params = new URLSearchParams({ testType: 'climatic', q: query.q })
+export const fetchTestAtlasSuggestions = (query: { q: string; program?: string; phase?: string; testType?: 'climatic' | 'vibration' }, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ testType: query.testType ?? 'climatic', q: query.q })
     if (query.program) params.set('program', query.program)
     if (query.phase) params.set('phase', query.phase)
     return request<TestAtlasSuggestions>(`/api/test-atlas/suggestions?${params}`, { method: 'GET' }, signal)
+}
+
+export interface VibrationSampleDetails {
+    programNumber: string
+    programName: string
+    phase: string
+    batchName: string
+    testCode: string
+    testType: string
+    axis: string
+    materialMasterCode: string
+}
+
+/** Inputs workbooks already saved directly in a vibration Material Master folder. */
+export const fetchVibrationSampleInputs = (details: VibrationSampleDetails, signal?: AbortSignal) => {
+    const params = new URLSearchParams(Object.entries(details).map(([key, value]) => [key, value.trim()]))
+    return request<{ workbooks: string[] }>(`/api/test-atlas/vibration/sample-inputs?${params}`, { method: 'GET' }, signal)
 }
 
 /** Thumbnail URL of a photo already saved in an evidence folder. */

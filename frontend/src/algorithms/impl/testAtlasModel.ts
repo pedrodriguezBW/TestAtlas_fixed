@@ -48,6 +48,44 @@ export interface EvidenceSetConfig {
     photos: PhotoFile[]
 }
 
+/**
+ * A photo checkpoint of a vibration sample (02_Evidences). Initial is always
+ * first and Final last; photos keep their original names. Folder numbers of
+ * intermediate checkpoints are assigned by the server after those already saved.
+ */
+export interface VibrationEvidenceSet {
+    id: string
+    type: EvidenceType
+    referenceType: ReferenceType
+    referenceValue: string
+    photos: FileDescriptor[]
+}
+
+/**
+ * A vibration Material Master ("MM - <code>"): 01_Inputs workbook, 02_Evidences
+ * checkpoints, 03_Data (01_Results, 02_Characterization, 03_CANoe) and the
+ * optional 04_Report/test_metadata.json.
+ */
+export interface VibrationSampleConfig {
+    id: string
+    materialMasterCode: string
+    inputsWorkbook: FileDescriptor | null
+    existingWorkbook: string
+    evidenceSets: VibrationEvidenceSet[]
+    results: FileDescriptor[]
+    characterization: FileDescriptor[]
+    canoe: FileDescriptor[]
+    metadata: FileDescriptor | null
+}
+
+export interface VibrationTestConfig {
+    id: string
+    testCode: string
+    vibrationType: string
+    axis: string
+    materialMasters: VibrationSampleConfig[]
+}
+
 /** Review returned by POST /api/test-atlas/plan. Paths use the Windows separator. */
 export interface TestAtlasPlan {
     root: string
@@ -84,6 +122,9 @@ export interface TestAtlasConfig {
     metadataExists: boolean
     files: DataFile[]
     evidenceSets: EvidenceSetConfig[]
+    batchName: string
+    inputsWorkbook: FileDescriptor | null
+    vibrationTests: VibrationTestConfig[]
     review: ReviewState | null
 }
 
@@ -98,7 +139,7 @@ export interface TestAtlasResult {
 }
 
 /** JSON manifest shared by the review, the staging upload and the run. */
-export interface TestAtlasManifest {
+export interface ClimaticManifest {
     testType: 'climatic'
     programNumber: string
     programName: string
@@ -118,6 +159,44 @@ export interface TestAtlasManifest {
         files: Array<{ id: string; name: string; size: number; mime: string; captureDate: string | null; dateSource: DateSource }>
     }>
 }
+
+export interface VibrationManifest {
+    testType: 'vibration'
+    programNumber: string
+    programName: string
+    phase: string
+    date: string
+    batchName: string
+    inputsWorkbook: FileDescriptor | null
+    tests: Array<{
+        id: string
+        testCode: string
+        testType: string
+        axis: string
+        materialMasters: Array<{
+            id: string
+            materialMasterCode: string
+            inputsWorkbook: FileDescriptor | null
+            existingWorkbook: string
+            evidenceSets: Array<{
+                id: string
+                type: EvidenceType
+                title: string
+                referenceType: ReferenceType
+                referenceValue: string
+                notes: string
+                existingFolder: string
+                files: FileDescriptor[]
+            }>
+            results: FileDescriptor[]
+            characterization: FileDescriptor[]
+            canoe: FileDescriptor[]
+            metadata: FileDescriptor | null
+        }>
+    }>
+}
+
+export type TestAtlasManifest = ClimaticManifest | VibrationManifest
 
 export interface TestAtlasTestState {
     workbooks: string[]
@@ -282,6 +361,61 @@ export const emptyEvidenceSets = (): EvidenceSetConfig[] => [
     { id: newId(), type: 'final', title: 'Final condition', referenceType: 'none', referenceValue: '', notes: '', existingFolder: '', savedPhotos: [], photos: [] },
 ]
 
+export const emptyVibrationEvidenceSet = (type: EvidenceType = 'planned_inspection'): VibrationEvidenceSet => ({
+    id: newId(),
+    type,
+    referenceType: type === 'initial' || type === 'final' ? 'none' : 'cycles',
+    referenceValue: '',
+    photos: [],
+})
+
+export const emptyVibrationSample = (): VibrationSampleConfig => ({
+    id: newId(),
+    materialMasterCode: '',
+    inputsWorkbook: null,
+    existingWorkbook: '',
+    evidenceSets: [emptyVibrationEvidenceSet('initial'), emptyVibrationEvidenceSet('final')],
+    results: [],
+    characterization: [],
+    canoe: [],
+    metadata: null,
+})
+
+/** Every file selected for a vibration sample, in manifest order. */
+export const vibrationSampleFiles = (sample: VibrationSampleConfig): FileDescriptor[] => [
+    ...(sample.inputsWorkbook ? [sample.inputsWorkbook] : []),
+    ...sample.evidenceSets.flatMap((set) => set.photos),
+    ...sample.results,
+    ...sample.characterization,
+    ...sample.canoe,
+    ...(sample.metadata ? [sample.metadata] : []),
+]
+
+const cleanPart = (value: string): string => value.trim().replace(/\s+/g, ' ')
+
+/** Vibration folders use the climatic " - " separator between fields; field values are free text. */
+export const vibrationProgramFolder = (config: Pick<TestAtlasConfig, 'programNumber' | 'programName'>): string =>
+    `${cleanPart(config.programNumber)} - ${cleanPart(config.programName)}`
+export const vibrationBatchFolder = (batchName: string): string => `BATCH - ${cleanPart(batchName)}`
+export const vibrationTestFolderName = (test: Pick<VibrationTestConfig, 'testCode' | 'vibrationType' | 'axis'>): string =>
+    `TEST - ${[test.testCode, test.vibrationType, test.axis].map(cleanPart).join(' - ')}`
+export const vibrationSampleFolder = (code: string): string => `MM - ${cleanPart(code)}`
+
+/** <date>_VB_Inputs_<Program>_<Phase>_<Batch>[_<TestType>_<Axis>] (mirrors the server). */
+export const vibrationWorkbookStem = (
+    config: Pick<TestAtlasConfig, 'date' | 'programName' | 'phase' | 'batchName'>,
+    test?: Pick<VibrationTestConfig, 'vibrationType' | 'axis'>,
+): string => [config.date, 'VB', 'Inputs', config.programName, config.phase, config.batchName,
+    ...(test ? [test.vibrationType, test.axis] : [])].map(cleanPart).join('_')
+
+export const emptyVibrationTest = (): VibrationTestConfig => ({
+    id: newId(),
+    testCode: '',
+    vibrationType: 'FSweep',
+    axis: 'X',
+    materialMasters: [emptyVibrationSample()],
+})
+
 export const emptyTestAtlasConfig = (): TestAtlasConfig => ({
     testType: null,
     step: 0,
@@ -296,6 +430,9 @@ export const emptyTestAtlasConfig = (): TestAtlasConfig => ({
     metadataExists: false,
     files: [],
     evidenceSets: emptyEvidenceSets(),
+    batchName: '',
+    inputsWorkbook: null,
+    vibrationTests: [emptyVibrationTest()],
     review: null,
 })
 
@@ -311,44 +448,140 @@ export const destinationPreview = (config: Pick<TestAtlasConfig, 'programNumber'
     return `${clean(config.programNumber, 'Program number')} - ${clean(config.programName, 'Program name')} / ${clean(config.phase, 'Phase')} / TEST - ${clean(config.testNumber, 'Test number')}`
 }
 
-export const buildManifest = (config: TestAtlasConfig): TestAtlasManifest => ({
-    testType: 'climatic',
-    programNumber: config.programNumber.trim(),
-    programName: config.programName.trim(),
-    phase: config.phase.trim(),
-    testNumber: config.testNumber.trim(),
-    date: config.date.trim(),
-    files: DATA_CATEGORIES.flatMap((category) => config.files
-        .filter((file) => file.category === category)
-        .map((file) => ({ id: file.id, name: file.name, size: file.size, mime: file.mime, category, captureDate: null as null }))),
-    evidenceSets: config.evidenceSets.map((set, sequence) => ({
-        id: set.id,
-        type: set.type,
-        title: set.title,
-        referenceType: set.referenceType,
-        referenceValue: set.referenceValue,
-        notes: set.notes,
-        sequence,
-        existingFolder: set.existingFolder || '',
-        files: set.photos.map((photo) => ({
-            id: photo.id,
-            name: photo.name,
-            size: photo.size,
-            mime: photo.mime,
-            captureDate: photoDate(photo, config.date),
-            dateSource: photo.dateSource,
+export const buildManifest = (config: TestAtlasConfig): TestAtlasManifest => {
+    if (config.testType === 'vibration') {
+        return {
+            testType: 'vibration',
+            programNumber: config.programNumber.trim(),
+            programName: config.programName.trim(),
+            phase: config.phase.trim(),
+            date: config.date.trim(),
+            batchName: config.batchName.trim(),
+            inputsWorkbook: config.inputsWorkbook,
+            tests: config.vibrationTests.map((test) => ({
+                id: test.id,
+                testCode: test.testCode.trim(),
+                testType: test.vibrationType.trim(),
+                axis: test.axis.trim(),
+                materialMasters: test.materialMasters.map((sample) => ({
+                    id: sample.id,
+                    materialMasterCode: sample.materialMasterCode.trim(),
+                    inputsWorkbook: sample.inputsWorkbook,
+                    existingWorkbook: sample.existingWorkbook,
+                    evidenceSets: sample.evidenceSets.map((set) => ({
+                        id: set.id,
+                        type: set.type,
+                        title: '',
+                        referenceType: set.referenceType,
+                        referenceValue: set.referenceType === 'none' ? '' : set.referenceValue.trim(),
+                        notes: '',
+                        existingFolder: '',
+                        files: set.photos,
+                    })),
+                    results: sample.results,
+                    characterization: sample.characterization,
+                    canoe: sample.canoe,
+                    metadata: sample.metadata,
+                })),
+            })),
+        }
+    }
+    return {
+        testType: 'climatic',
+        programNumber: config.programNumber.trim(),
+        programName: config.programName.trim(),
+        phase: config.phase.trim(),
+        testNumber: config.testNumber.trim(),
+        date: config.date.trim(),
+        files: DATA_CATEGORIES.flatMap((category) => config.files
+            .filter((file) => file.category === category)
+            .map((file) => ({ id: file.id, name: file.name, size: file.size, mime: file.mime, category, captureDate: null as null }))),
+        evidenceSets: config.evidenceSets.map((set, sequence) => ({
+            id: set.id,
+            type: set.type,
+            title: set.title,
+            referenceType: set.referenceType,
+            referenceValue: set.referenceValue,
+            notes: set.notes,
+            sequence,
+            existingFolder: set.existingFolder || '',
+            files: set.photos.map((photo) => ({
+                id: photo.id,
+                name: photo.name,
+                size: photo.size,
+                mime: photo.mime,
+                captureDate: photoDate(photo, config.date),
+                dateSource: photo.dateSource,
+            })),
         })),
-    })),
-})
+    }
+}
 
 /** Everything that changes the plan; a review made for a different key is stale. */
 export const manifestKey = (config: TestAtlasConfig): string => JSON.stringify(buildManifest(config))
 
 /** Every file that has to be uploaded, in manifest order. */
-export const uploadList = (config: TestAtlasConfig): FileDescriptor[] => [
-    ...DATA_CATEGORIES.flatMap((category) => config.files.filter((file) => file.category === category)),
-    ...config.evidenceSets.flatMap((set) => set.photos),
-]
+export const uploadList = (config: TestAtlasConfig): FileDescriptor[] => config.testType === 'vibration'
+    ? [
+        ...(config.inputsWorkbook ? [config.inputsWorkbook] : []),
+        ...config.vibrationTests.flatMap((test) => test.materialMasters.flatMap(vibrationSampleFiles)),
+    ]
+    : [
+        ...DATA_CATEGORIES.flatMap((category) => config.files.filter((file) => file.category === category)),
+        ...config.evidenceSets.flatMap((set) => set.photos),
+    ]
+
+export interface VibrationIssue { message: string; step: number }
+
+/** First incomplete or invalid part of the vibration workflow, in wizard order. */
+export const vibrationIssue = (config: TestAtlasConfig): VibrationIssue | null => {
+    for (const [key, label] of [
+        ['programNumber', 'program number'],
+        ['programName', 'program name'],
+        ['phase', 'phase'],
+        ['batchName', 'batch name'],
+    ] as const) {
+        if (!validPart(config[key].trim())) return { message: `Enter a valid ${label}. Avoid /, \\, and other path characters.`, step: 1 }
+    }
+    const badDate = dateProblem(config.date.trim())
+    if (badDate) return { message: badDate, step: 1 }
+    if (!config.inputsWorkbook) return { message: 'Select the general batch inputs workbook.', step: 2 }
+    if (!config.vibrationTests.length || config.vibrationTests.length > 50) return { message: 'Add between 1 and 50 vibration tests.', step: 3 }
+    const folders = new Set<string>()
+    for (const test of config.vibrationTests) {
+        for (const [value, label] of [[test.testCode, 'test code'], [test.vibrationType, 'test type'], [test.axis, 'axis']] as const) {
+            if (!validPart(value.trim())) return { message: `Enter a valid ${label} for every vibration test.`, step: 3 }
+        }
+        const folder = vibrationTestFolderName(test)
+        if (folders.has(folder.toLowerCase())) return { message: `Duplicate test folder: ${folder}.`, step: 3 }
+        folders.add(folder.toLowerCase())
+        if (!test.materialMasters.length) return { message: `Add at least one Material Master to ${folder}.`, step: 3 }
+        const samples = new Set<string>()
+        for (const sample of test.materialMasters) {
+            const code = cleanPart(sample.materialMasterCode)
+            if (!validPart(code) || samples.has(code.toLowerCase())) return { message: `Enter a valid, unique Material Master code in ${folder}.`, step: 3 }
+            samples.add(code.toLowerCase())
+        }
+    }
+    for (const test of config.vibrationTests) {
+        for (const sample of test.materialMasters) {
+            const where = `${vibrationSampleFolder(sample.materialMasterCode)} in ${vibrationTestFolderName(test)}`
+            if (!sample.inputsWorkbook && !sample.existingWorkbook) return { message: `Select an inputs workbook for ${where}.`, step: 4 }
+            const sets = sample.evidenceSets
+            if (sets.length < 2 || sets[0].type !== 'initial' || sets[sets.length - 1].type !== 'final'
+                || sets.slice(1, -1).some((set) => set.type === 'initial' || set.type === 'final')) {
+                return { message: `Initial evidence must be first and Final evidence must be last (${where}).`, step: 4 }
+            }
+            for (const set of sets.slice(1, -1)) {
+                if (set.referenceType !== 'none' && !validPart(set.referenceValue)) {
+                    return { message: `Enter a valid ${REFERENCE_TYPE_LABELS[set.referenceType].toLowerCase()} value for every checkpoint of ${where}.`, step: 4 }
+                }
+            }
+        }
+    }
+    if (uploadList(config).length > MAX_FILES) return { message: `Select no more than ${MAX_FILES} files per save.`, step: 4 }
+    return null
+}
 
 /**
  * Merge the evidence folders saved in the repository into the evidence list.
@@ -412,11 +645,11 @@ export const mergeSavedEvidence = (
 
 /**
  * Run (the Toolbox button that saves) is enabled under the same conditions as
- * "Confirm & save files" in the original: climatic workflow, a review that
+ * "Confirm & save files" in the original: an available workflow, a review that
  * matches the current form, every existing file approved and the review confirmed.
  */
 export const validateTestAtlas = (config: TestAtlasConfig): string[] => {
-    if (config.testType !== 'climatic' || config.step < 5 || !config.review || config.review.key !== manifestKey(config)) {
+    if (!['climatic', 'vibration'].includes(config.testType ?? '') || config.step < 5 || !config.review || config.review.key !== manifestKey(config)) {
         return ['Complete the Test Atlas steps and review the files before saving.']
     }
     const pending = config.review.plan.files.find((file) => file.conflict && !config.review?.approved.includes(file.id))

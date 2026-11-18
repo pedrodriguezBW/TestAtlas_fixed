@@ -28,6 +28,8 @@ import {
     testKey,
     uploadList,
     validPart,
+    vibrationIssue,
+    vibrationSampleFolder,
     type DataCategory,
     type DataFile,
     type EvidenceSetConfig,
@@ -41,6 +43,7 @@ import {
 import { resetRunState, useRunState, type LoadingContent } from './runState'
 import { useRepositorySuggestions, type SuggestionField } from './RepositorySuggestions'
 import { VisualWorkspace } from './VisualWorkspace'
+import { VibrationWorkflow, vibrationTestFolder } from './VibrationWorkflow'
 import { planTreeText } from './planTree'
 import climateChamber from './assets/climate-chamber.png'
 import vibrationShaker from './assets/vibration-shaker.png'
@@ -50,7 +53,8 @@ import './test-atlas.css'
 // app.js, styles.css, atlas.css): same markup, classes and copy, rendered with
 // React inside the Toolbox. Saving uses the Toolbox Run button (TEST_ATLAS).
 
-const STEP_LABELS = ['Test type', 'Test details', 'Inputs Excel', 'Test evidence', 'Data files', 'Review & save']
+const CLIMATIC_STEP_LABELS = ['Test type', 'Test details', 'Inputs Excel', 'Test evidence', 'Data files', 'Review & save']
+const VIBRATION_STEP_LABELS = ['Test type', 'Vibration batch', 'Batch inputs', 'Tests & samples', 'Sample files', 'Review & save']
 const EVIDENCE_ICONS: Record<EvidenceType, string> = {
     initial: '↗', planned_inspection: '◷', unplanned_stop: 'Ⅱ', incident: '!', restart: '↻', final: '✓', other: '◇',
 }
@@ -325,7 +329,7 @@ export function TestAtlasApp({ value, onChange, disabled }: AlgorithmInputProps<
         if (latest.current.step === 5 && number !== 5) resetRunState()
         update({ ...patch, step: number, maxStep })
         setEnterKey((key) => key + 1)
-        if ([2, 3, 4].includes(number)) void refreshTestState({ showLoading: number === 3 })
+        if (latest.current.testType === 'climatic' && [2, 3, 4].includes(number)) void refreshTestState({ showLoading: number === 3 })
         scrollToTop()
     }
 
@@ -362,19 +366,30 @@ export function TestAtlasApp({ value, onChange, disabled }: AlgorithmInputProps<
 
     /** Ask the server to calculate the destination plan (app.js review). */
     const startReview = async () => {
-        if (!checkDetails()) return
-        await refreshTestState()
-        if (!inputsReady()) {
-            error('Add one inputs .xlsx or .xlsm workbook before reviewing. No inputs workbook was found for this test yet.')
-            return
+        if (latest.current.testType === 'vibration') {
+            const issue = vibrationIssue(latest.current)
+            if (issue) {
+                if (latest.current.step !== issue.step) showStep(issue.step)
+                error(issue.message)
+                return
+            }
+        } else {
+            if (!checkDetails()) return
+            await refreshTestState()
+            if (!inputsReady()) {
+                error('Add one inputs .xlsx or .xlsm workbook before reviewing. No inputs workbook was found for this test yet.')
+                return
+            }
         }
         const loader = loading.show({ title: 'Preparing the review', detail: 'Checking destinations and existing files…', progress: null }, 200)
         try {
             const requested = manifestKey(latest.current)
             const plan: TestAtlasPlan = await planTestAtlas(buildManifest(latest.current))
             if (requested !== manifestKey(latest.current)) return
-            // test_metadata.json is expected to be replaced: approved by default, with a warning.
-            const approved = plan.files.filter((file) => file.conflict && file.category === 'metadata').map((file) => file.id)
+            // Climatic test_metadata.json is expected to be replaced: approved by default, with a warning.
+            const approved = latest.current.testType === 'climatic'
+                ? plan.files.filter((file) => file.conflict && file.category === 'metadata').map((file) => file.id)
+                : []
             showStep(5, { review: { key: requested, plan, approved }, confirmed: false })
         } catch (caught) {
             error(caught instanceof Error ? caught.message : String(caught))
@@ -553,6 +568,10 @@ export function TestAtlasApp({ value, onChange, disabled }: AlgorithmInputProps<
         showStep(1, { testType: 'climatic', review: null, confirmed: false })
     }
 
+    const selectVibration = () => {
+        showStep(1, { testType: 'vibration', review: null, confirmed: false })
+    }
+
     // ------------------------------------------------------------------ view
 
     const files = (category: DataCategory) => value.files.filter((file) => file.category === category)
@@ -562,16 +581,27 @@ export function TestAtlasApp({ value, onChange, disabled }: AlgorithmInputProps<
     const unresolved = conflicts.some((file) => !reviewed?.approved.includes(file.id))
     const canSave = !saving && Boolean(reviewed) && value.confirmed && !unresolved
     const details = { programNumber: value.programNumber, programName: value.programName, phase: value.phase, testNumber: value.testNumber }
+    const vibrationSamples = value.vibrationTests.flatMap((test) => test.materialMasters)
+    const activeVibrationTest = value.vibrationTests[0]
+    const activeVibrationSample = activeVibrationTest?.materialMasters[0]
     const visualState = {
-        testType: 'climatic',
+        testType: value.testType ?? 'climatic',
         step: success ? 6 : step,
-        details: { ...details, date: value.date },
-        workbook: inputsFile[0]?.name || '',
+        details: { ...details, date: value.date, batchName: value.batchName },
+        workbook: value.testType === 'vibration' ? value.inputsWorkbook?.name || '' : inputsFile[0]?.name || '',
         existingWorkbook: value.existingInputs[0] || '',
         evidence: value.evidenceSets.map((set) => ({ title: set.title, count: set.photos.length + set.savedPhotos.length })),
-        data: (['simpati', 'graphtec', 'canoe'] as const).map((category) => files(category).length),
-        total: value.files.length + value.evidenceSets.reduce((sum, set) => sum + set.photos.length, 0),
+        data: value.testType === 'vibration' && activeVibrationSample
+            ? [activeVibrationSample.evidenceSets.reduce((total, set) => total + set.photos.length, 0), activeVibrationSample.results.length, activeVibrationSample.characterization.length]
+            : (['simpati', 'graphtec', 'canoe'] as const).map((category) => files(category).length),
+        total: uploadList(value).length,
         conflicts: conflicts.length,
+        testCount: value.vibrationTests.length,
+        sampleCount: vibrationSamples.length,
+        canoe: activeVibrationSample?.canoe.length ?? 0,
+        currentTest: activeVibrationTest ? vibrationTestFolder(activeVibrationTest) : '',
+        currentSample: activeVibrationSample ? vibrationSampleFolder(activeVibrationSample.materialMasterCode) : '',
+        sampleWorkbook: activeVibrationSample?.inputsWorkbook?.name || activeVibrationSample?.existingWorkbook || '',
     }
     const backButton = <button className="button ghost" data-back type="button" disabled={saving} onClick={() => showStep(step - 1)}>Back</button>
     const card = (number: number, children: ReactNode) => (
@@ -590,9 +620,9 @@ export function TestAtlasApp({ value, onChange, disabled }: AlgorithmInputProps<
                         <span><strong>Climatic</strong><small>Temperature & humidity</small></span>
                         <span className="select-indicator" />
                     </button>
-                    <button className="type-choice" data-type="vibration" type="button" disabled>
+                    <button className={`type-choice${value.testType === 'vibration' ? ' selected' : ''}`} data-type="vibration" type="button" disabled={saving} onClick={selectVibration}>
                         <span className="type-icon equipment-icon" aria-hidden="true"><img src={vibrationShaker} alt="" /></span>
-                        <span><strong>Vibration</strong><small>Coming soon</small></span>
+                        <span><strong>Vibration</strong><small>Batches, tests & samples</small></span>
                         <span className="select-indicator" />
                     </button>
                     <button className="type-choice" type="button" disabled>
@@ -828,7 +858,7 @@ export function TestAtlasApp({ value, onChange, disabled }: AlgorithmInputProps<
         <div id="ta-reviewFilesHeading" className="review-heading" hidden={conflicts.length === 0}><strong id="ta-reviewFilesTitle">Existing files to replace</strong><span id="ta-fileCount">{`${conflicts.length} file${conflicts.length === 1 ? '' : 's'} already saved`}</span></div>
         <div id="ta-reviewFiles" className="review-files" hidden={conflicts.length === 0}>
             {conflicts.map((file) => {
-                const metadata = file.category === 'metadata'
+                const metadata = value.testType === 'climatic' && file.category === 'metadata'
                 return (
                     <div key={file.id} className={`review-file${metadata ? ' review-file-warning' : ''}`}>
                         <div>
@@ -865,7 +895,16 @@ export function TestAtlasApp({ value, onChange, disabled }: AlgorithmInputProps<
         </section>
     )
 
-    const cards = [typeChoice, detailsCard, inputsCard, evidenceStep, dataCard, reviewCard]
+    const vibrationCards = [
+        typeChoice,
+        <VibrationWorkflow key="vibration-1" step={1} value={value} saving={saving} edit={edit} showStep={showStep} startReview={() => { void startReview() }} error={error} />,
+        <VibrationWorkflow key="vibration-2" step={2} value={value} saving={saving} edit={edit} showStep={showStep} startReview={() => { void startReview() }} error={error} />,
+        <VibrationWorkflow key="vibration-3" step={3} value={value} saving={saving} edit={edit} showStep={showStep} startReview={() => { void startReview() }} error={error} />,
+        <VibrationWorkflow key="vibration-4" step={4} value={value} saving={saving} edit={edit} showStep={showStep} startReview={() => { void startReview() }} error={error} />,
+        reviewCard,
+    ]
+    const cards = value.testType === 'vibration' ? vibrationCards : [typeChoice, detailsCard, inputsCard, evidenceStep, dataCard, reviewCard]
+    const stepLabels = value.testType === 'vibration' ? VIBRATION_STEP_LABELS : CLIMATIC_STEP_LABELS
     const root = knownRoot || reviewed?.plan.root || ''
 
     return (
@@ -881,7 +920,7 @@ export function TestAtlasApp({ value, onChange, disabled }: AlgorithmInputProps<
                         <div className="brand"><span className="brand-mark" aria-hidden="true">↗</span><span><strong>TEST ATLAS</strong><small>Automotive workspace</small></span></div>
                         <div className="side-label">WORKFLOW</div>
                         <nav aria-label="Workflow steps" id="ta-stepNav">
-                            {STEP_LABELS.map((label, index) => (
+                            {stepLabels.map((label, index) => (
                                 <button
                                     key={label}
                                     type="button"

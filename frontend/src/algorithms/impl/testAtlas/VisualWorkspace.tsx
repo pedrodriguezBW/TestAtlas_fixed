@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
-import { factsFor, palette, sceneFor, stepCopy, summaryFor, type VisualState } from './visuals'
+import { factsFor, palette, sceneFor, stepCopy, summaryFor, vibrationCopy, type VisualState } from './visuals'
 
 // The illustrated companion of the original Test Atlas (public/visuals.js):
 // decorative SVG scene, copy and facts for the current step, and a light
@@ -22,7 +22,7 @@ export function VisualWorkspace({ state, paused, onToggleMotion }: {
     const sceneRef = useRef<HTMLDivElement | null>(null)
     const pausedRef = useRef(paused)
     const restart = useRef<() => void>(() => undefined)
-    const [eyebrow, title, footer] = stepCopy[state.step]
+    const [eyebrow, title, footer] = (state.testType === 'vibration' ? vibrationCopy : stepCopy)[state.step]
     const index = state.step === 6 ? '✓' : String(state.step + 1).padStart(2, '0')
 
     useEffect(() => {

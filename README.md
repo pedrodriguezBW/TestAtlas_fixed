@@ -37,11 +37,13 @@ cp .env.example .env          # Windows: copy .env.example .env
 ```
 
 Edita `.env`. Lo mínimo para trabajar en local es apuntar el repositorio de proyecto a
-una carpeta local vacía (en producción es el recurso compartido
-`//vigvsfil1.global.borgwarner.net/vigproductengineering/Documentacion_I+D/R&T/9. CL`):
+una carpeta local vacía. En producción, los ensayos climáticos se guardan en
+`//vigvsfil1.global.borgwarner.net/vigproductengineering/Documentacion_I+D/R&T/9. CL` y los de
+vibraciones en `//vigvsfil1.global.borgwarner.net/vigproductengineering/Documentacion_I+D/R&T/7. Vib`:
 
 ```
-TESTATLAS_REPOSITORY_ROOT=/tmp/test-atlas-repository     # Windows: C:/Temp/TestAtlasRepository
+TESTATLAS_REPOSITORY_ROOT=/tmp/test-atlas-repository               # Windows: C:/Temp/TestAtlasRepository
+TESTATLAS_VIBRATION_REPOSITORY_ROOT=/tmp/test-atlas-vibration      # Windows: C:/Temp/TestAtlasVibration
 ```
 
 - **Backend**: Spring Boot lee automáticamente `.env` (o `../.env`) cuando se arranca desde
@@ -61,7 +63,8 @@ TESTATLAS_REPOSITORY_ROOT=/tmp/test-atlas-repository     # Windows: C:/Temp/Test
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `SERVER_PORT` / `SERVER_ADDRESS` | `17000` / `127.0.0.1` | Puerto y dirección del backend |
-| `TESTATLAS_REPOSITORY_ROOT` | recurso compartido de producción | Raíz del repositorio de proyecto (debe ser escribible por la cuenta que ejecuta el backend) |
+| `TESTATLAS_REPOSITORY_ROOT` | `…\R&T\9. CL` | Raíz del repositorio de ensayos climáticos (debe ser escribible por la cuenta que ejecuta el backend) |
+| `TESTATLAS_VIBRATION_REPOSITORY_ROOT` | `…\R&T\7. Vib` | Raíz del repositorio de ensayos de vibraciones (debe ser escribible por la cuenta que ejecuta el backend) |
 | `TESTATLAS_STAGING_ROOT` | `<tmp>/test-atlas-staging` | Carpeta temporal de subidas |
 | `TESTATLAS_FRONTEND_ORIGINS` | `http://localhost:18000,http://127.0.0.1:18000` | Orígenes CORS permitidos (solo si el frontend llama al backend directamente) |
 | `BACKEND_URL` | `http://127.0.0.1:17000` | Destino del proxy `/api` (Vite en desarrollo y `npm start`) |
@@ -136,5 +139,9 @@ El contrato está en `backend/openapi.yaml`:
 
 - El registro de ejecuciones que la Toolbox guardaba en PostgreSQL se sustituye por una
   línea en el log del backend (`AlgorithmService`) con el resultado y el resumen.
-- El flujo de vibración sigue deshabilitado en la interfaz ("Coming soon"), igual que en
-  la Toolbox; el backend mantiene su soporte.
+- Vibraciones usa la misma convención que Climáticos:
+  `<Nº> - <Programa>\<Fase>\BATCH - <Tanda>\TEST - <Código> - <Tipo> - <Eje>\MM - <Código>`, y bajo
+  cada MM `01_Inputs`, `02_Evidences` (`00_Initial`, `NN_…`, `99_Final`; las fotos conservan su nombre),
+  `03_Data` (`01_Results`, `02_Characterization`, `03_CANoe`) y `04_Report` (`test_metadata.json`).
+  Los workbooks se renombran `<AAMMDD>_VB_Inputs_<Programa>_<Fase>_<Tanda>[_<Test>_<Eje>]`.
+  Las carpetas antiguas (`0000_Ejemplo\01_DV\…`) no se migran ni se sugieren.

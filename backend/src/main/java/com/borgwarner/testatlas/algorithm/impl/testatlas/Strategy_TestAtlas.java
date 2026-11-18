@@ -91,6 +91,8 @@ public class Strategy_TestAtlas implements I_ExecutableAlgorithm<Conf_TestAtlas,
         int total = 2;
         progress.report(0, total, "Checking the repository");
         TestAtlasPlan plan = planner.plan(config);
+        // Climatic and vibration tests are saved in different repository roots.
+        TestAtlasRepository repository = this.repository.forType(plan.testType());
         Map<String, Path> staged = staging.resolve(config.uploadId(), plan);
         Set<String> approved = approvedOverwrites(config, plan);
         total = 2 + plan.directories().size() + plan.evidenceSets().size() + plan.files().size();
@@ -124,7 +126,7 @@ public class Strategy_TestAtlas implements I_ExecutableAlgorithm<Conf_TestAtlas,
 
             // Reordered evidence checkpoints: rename their folders before creating
             // the new ones, so every folder ends with its new position number.
-            renameEvidenceFolders(plan.renames(), runId);
+            renameEvidenceFolders(repository, plan.renames(), runId);
             progress.report(++current, total, "Checked the repository");
 
             // Remove duplicate paths before creating folders: 02_Evidences and each
@@ -143,7 +145,7 @@ public class Strategy_TestAtlas implements I_ExecutableAlgorithm<Conf_TestAtlas,
             // Write one structured descriptor for every evidence set. A temporary
             // adjacent file prevents exposing incomplete JSON.
             for (PlannedEvidence evidence : plan.evidenceSets()) {
-                writeEvidenceDescriptor(evidence, runId);
+                writeEvidenceDescriptor(repository, evidence, runId);
                 progress.report(++current, total, "Recorded " + evidence.folderName());
             }
 
@@ -218,7 +220,7 @@ public class Strategy_TestAtlas implements I_ExecutableAlgorithm<Conf_TestAtlas,
      * temporary name -> new name), so two folders can swap positions without
      * colliding. If anything fails, the folders already moved are put back.
      */
-    private void renameEvidenceFolders(List<Rename> renames, String runId) throws IOException {
+    private void renameEvidenceFolders(TestAtlasRepository repository, List<Rename> renames, String runId) throws IOException {
         if (renames.isEmpty()) {
             return;
         }
@@ -273,7 +275,7 @@ public class Strategy_TestAtlas implements I_ExecutableAlgorithm<Conf_TestAtlas,
         }
     }
 
-    private void writeEvidenceDescriptor(PlannedEvidence evidence, String runId) throws IOException {
+    private void writeEvidenceDescriptor(TestAtlasRepository repository, PlannedEvidence evidence, String runId) throws IOException {
         Path directory = repository.destination(evidence.path());
         Path descriptorPath = directory.resolve("evidence.json");
         Path temporary = directory.resolve("evidence.json.incoming-" + runId);

@@ -12,6 +12,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -19,26 +20,54 @@ import org.springframework.stereotype.Component;
  * The project repository: the folder under which every test is organised, plus
  * the containment and link checks that keep generated destinations inside it.
  *
- * <p>The root comes from {@code testatlas.repository-root}, set in
- * {@code application.properties} to the shared repository
- * {@code \\vigvsfil1.global.borgwarner.net\vigproductengineering\Documentacion_I+D\R&T\9. CL},
- * which must be writable by the account that runs the backend. The
- * {@code TESTATLAS_REPOSITORY_ROOT} environment variable overrides it (for
- * example with a test folder); the Desktop {@code Proyectos} folder of the
- * original Test Atlas is only used if the property is missing.
+ * <p>Climatic and vibration tests are saved under different roots:
+ * <ul>
+ *   <li>{@code testatlas.repository-root} (climatic), set in
+ *       {@code application.properties} to
+ *       {@code \\vigvsfil1.global.borgwarner.net\vigproductengineering\Documentacion_I+D\R&T\9. CL}
+ *       and overridden by {@code TESTATLAS_REPOSITORY_ROOT};</li>
+ *   <li>{@code testatlas.vibration-repository-root} (vibration), set to
+ *       {@code \\vigvsfil1.global.borgwarner.net\vigproductengineering\Documentacion_I+D\R&T\7. Vib}
+ *       and overridden by {@code TESTATLAS_VIBRATION_REPOSITORY_ROOT}.</li>
+ * </ul>
+ * Both must be writable by the account that runs the backend. The bean is the
+ * climatic repository; {@link #forType(String)} returns the repository of a
+ * workflow. The Desktop {@code Proyectos} folder of the original Test Atlas is
+ * only used if the properties are missing.
  */
 @Component
 public class TestAtlasRepository {
 
     private final Path root;
+    private final TestAtlasRepository vibration;
 
-    public TestAtlasRepository(
-            @Value("${testatlas.repository-root:${user.home}/Desktop/Proyectos}") String root) {
+    /** Climatic and vibration workflows saved under the same root (tests and local tools). */
+    public TestAtlasRepository(String root) {
         this.root = Path.of(root).toAbsolutePath().normalize();
+        this.vibration = this;
+    }
+
+    @Autowired
+    public TestAtlasRepository(
+            @Value("${testatlas.repository-root:${user.home}/Desktop/Proyectos}") String root,
+            @Value("${testatlas.vibration-repository-root:${user.home}/Desktop/Proyectos/Vibration}")
+            String vibrationRoot) {
+        this.root = Path.of(root).toAbsolutePath().normalize();
+        this.vibration = new TestAtlasRepository(vibrationRoot);
     }
 
     public Path root() {
         return root;
+    }
+
+    /** Repository of a workflow: {@code "vibration"} has its own root; anything else is climatic. */
+    public TestAtlasRepository forType(String testType) {
+        return "vibration".equals(testType) ? vibration : this;
+    }
+
+    /** Repository of the vibration workflow. */
+    public TestAtlasRepository vibration() {
+        return vibration;
     }
 
     /**
@@ -105,6 +134,12 @@ public class TestAtlasRepository {
                         current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
                 if (attributes.isSymbolicLink() || attributes.isOther()) {
                     throw new TestAtlasException("A destination uses a symbolic link.");
+                }
+                if (!attributes.isDirectory() && !current.equals(target)) {
+                    // An ordinary file where a folder is needed: deeper components
+                    // cannot exist (Linux reports ENOTDIR instead of "not found").
+                    throw new TestAtlasException("A file occupies a required folder: "
+                            + root.relativize(current) + ".");
                 }
             } catch (NoSuchFileException exception) {
                 // Missing components are created on save.

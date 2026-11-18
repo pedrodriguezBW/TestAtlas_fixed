@@ -16,7 +16,7 @@ import {
 } from './testAtlasModel'
 import './testAtlas/test-atlas.css'
 
-// Test Atlas: organizes climatic test files, photographic evidence and
+// Test Atlas: organizes climatic and vibration test files, photographic evidence and
 // measurement data in the project repository. The form keeps the original
 // climate-file-organizer design (see ./testAtlas); the save is the TEST_ATLAS
 // backend algorithm, started with the Toolbox Run button.
@@ -37,7 +37,7 @@ function OutputView({ result }: AlgorithmOutputProps<TestAtlasConfig, TestAtlasR
                         <h2>Saved in the project repository</h2>
                         <p>{result.saved.length === 0
                             ? 'Folders and evidence records updated. No new files were needed.'
-                            : `${result.saved.length} file${result.saved.length === 1 ? '' : 's'} saved. The 04_Report folder is available for reports.`}</p>
+                            : `${result.saved.length} file${result.saved.length === 1 ? '' : 's'} saved in the planned folder structure.`}</p>
                     </div>
                     <div className="review-destination"><small>PROJECT DESTINATION</small><strong>{result.folder}</strong><span>{root}</span></div>
                     <div className="review-tree">
@@ -54,7 +54,7 @@ const testAtlas: AlgorithmStrategy<TestAtlasConfig, TestAtlasResult> = {
     id: 'TEST_ATLAS',
     label: 'Test Atlas',
     description:
-        'Organizes climatic test files, photographic evidence and measurement data into the standard folder structure of the project repository.',
+        'Organizes climatic and vibration test files, photographic evidence and measurement data into the standard folder structure of the project repository.',
     order: 10,
     platforms: [AlgorithmPlatform.FileRepository],
     roles: [AlgorithmRole.Anyone],

@@ -60,6 +60,11 @@ public class TestAtlasPlanner {
     private static final Pattern SAVED_EVIDENCE_PHOTO = Pattern.compile(
             "^\\d{6}_Evidence_(\\d+)\\.[^.]+$", Pattern.CASE_INSENSITIVE);
 
+    /** Typed prefixes of the vibration folders (same " - " separator as climatic). */
+    public static final String BATCH_PREFIX = "BATCH - ";
+    public static final String TEST_PREFIX = "TEST - ";
+    public static final String MM_PREFIX = "MM - ";
+
     private final TestAtlasRepository repository;
     private final TestAtlasRepositoryReader reader;
 
@@ -391,24 +396,40 @@ public class TestAtlasPlanner {
 
     // --------------------------------------------------------------- vibration
 
+    /**
+     * Vibration plan. The hierarchy down to the Material Master is
+     * {@code <No> - <Name>\<Phase>\BATCH - <Batch>\TEST - <Code> - <Type> - <Axis>\MM - <Code>},
+     * with the same separators as the climatic workflow; below the Material
+     * Master the four climatic blocks are used: {@code 01_Inputs},
+     * {@code 02_Evidences} (00_Initial, NN_ checkpoints, 99_Final),
+     * {@code 03_Data} (01_Results, 02_Characterization, 03_CANoe) and
+     * {@code 04_Report}. Field values are free text: only the separators between
+     * fields are fixed. Vibration tests are saved in their own repository root.
+     */
     private TestAtlasPlan planVibration(Conf_TestAtlas request) {
+        TestAtlasRepository repository = this.repository.vibration();
         Map<String, String> fields = new LinkedHashMap<>();
-        fields.put("programNumber", safePart(request.programNumber(), "programNumber"));
-        fields.put("programName", safePart(request.programName(), "programName"));
+        fields.put("programNumber", safePart(request.programNumber(), "program number"));
+        fields.put("programName", safePart(request.programName(), "program name"));
         fields.put("phase", safePart(request.phase(), "phase"));
-        fields.put("batchName", safePart(request.batchName(), "batchName"));
+        fields.put("batchName", safePart(request.batchName(), "batch name"));
+        fields.put("date", validateDate(request.date()));
 
         List<String> base = List.of(
-                joinName(List.of(fields.get("programNumber"), fields.get("programName")), "Program folder"),
+                folderName(fields.get("programNumber") + " - " + fields.get("programName"), "Program folder"),
                 fields.get("phase"),
-                fields.get("batchName"));
+                folderName(BATCH_PREFIX + fields.get("batchName"), "Batch folder"));
+        // <date>_VB_Inputs_<Program>_<Phase>_<Batch>, like <date>_CL_Inputs_<Program>_<Phase>_<Test>.
+        String workbookStem = fields.get("date") + "_VB_Inputs_" + fields.get("programName") + "_"
+                + fields.get("phase") + "_" + fields.get("batchName");
         List<List<String>> directories = new ArrayList<>();
         directories.add(base);
         List<DraftFile> files = new ArrayList<>();
         Set<String> identifiers = new HashSet<>();
         List<List<String>> existingWorkbooks = new ArrayList<>();
 
-        upload(request.inputsWorkbook(), "inputs", base, files, identifiers);
+        // The general batch workbook stays directly in the batch folder.
+        upload(request.inputsWorkbook(), "inputs", base, files, identifiers, workbookStem);
 
         if (request.tests() == null || request.tests().isEmpty() || request.tests().size() > 50) {
             throw new TestAtlasException("Add between 1 and 50 vibration tests.");
@@ -423,7 +444,8 @@ public class TestAtlasPlanner {
             String testCode = safePart(rawTest.testCode(), "test code");
             String testType = safePart(rawTest.testType(), "vibration test type");
             String axis = safePart(rawTest.axis(), "axis");
-            String testFolder = joinName(List.of(testCode, testType, axis), "Test folder");
+            String testFolder = folderName(
+                    TEST_PREFIX + testCode + " - " + testType + " - " + axis, "Test folder");
             if (!testNames.add(lower(testFolder))) {
                 throw new TestAtlasException("Duplicate test folder: " + testFolder + ".");
             }
@@ -440,14 +462,25 @@ public class TestAtlasPlanner {
                 }
                 modelId(rawSample.id(), modelIds);
                 String code = safePart(rawSample.materialMasterCode(), "Material Master code");
-                boolean hasIncidents = Boolean.TRUE.equals(rawSample.hasIncidents());
                 if (!sampleCodes.add(lower(code))) {
                     throw new TestAtlasException("Duplicate Material Master " + code + " in " + testFolder + ".");
                 }
-                List<String> samplePath = with(testPath, code);
+                List<String> samplePath = with(testPath, folderName(MM_PREFIX + code, "Material Master folder"));
+                List<String> inputsPath = with(samplePath, "01_Inputs");
+                List<String> evidencesPath = with(samplePath, "02_Evidences");
+                List<String> dataPath = with(samplePath, "03_Data");
+                List<String> resultsPath = with(dataPath, "01_Results");
+                List<String> characterizationPath = with(dataPath, "02_Characterization");
+                List<String> canoePath = with(dataPath, "03_CANoe");
+                List<String> reportPath = with(samplePath, "04_Report");
                 directories.add(samplePath);
+                directories.add(inputsPath);
+                directories.add(evidencesPath);
+
+                /* 01_Inputs: a new workbook is renamed; an existing one is kept. */
                 if (rawSample.inputsWorkbook() != null) {
-                    upload(rawSample.inputsWorkbook(), "sampleInputs", samplePath, files, identifiers);
+                    upload(rawSample.inputsWorkbook(), "sampleInputs", inputsPath, files, identifiers,
+                            workbookStem + "_" + testType + "_" + axis);
                 } else {
                     if (rawSample.existingWorkbook() == null || rawSample.existingWorkbook().isEmpty()) {
                         throw new TestAtlasException("Select an inputs workbook for " + code + ".");
@@ -456,40 +489,39 @@ public class TestAtlasPlanner {
                     if (!WORKBOOK_EXTENSIONS.contains(extension(name))) {
                         throw new TestAtlasException("Select an inputs workbook for " + code + ".");
                     }
-                    repository.ensureNotLink(repository.destination(with(samplePath, name)));
-                    boolean found = repository.entries(repository.destination(samplePath)).stream()
+                    repository.ensureNotLink(repository.destination(with(inputsPath, name)));
+                    boolean found = repository.entries(repository.destination(inputsPath)).stream()
                             .anyMatch(entry -> Files.isRegularFile(entry)
                                     && lower(entry.getFileName().toString()).equals(lower(name)));
                     if (!found) {
                         throw new TestAtlasException("Inputs workbook for " + code
                                 + " is missing. Select a file or an existing workbook.");
                     }
-                    existingWorkbooks.add(with(samplePath, name));
+                    existingWorkbooks.add(with(inputsPath, name));
                 }
-                List<Map.Entry<String, List<FileEntry>>> groups = List.of(
-                        Map.entry("photos", orEmpty(rawSample.photos())),
-                        Map.entry("results", orEmpty(rawSample.results())),
-                        Map.entry("characterization", orEmpty(rawSample.characterization())),
-                        Map.entry("incidentFiles", orEmpty(rawSample.incidentFiles())));
-                Map<String, String> folders = Map.of(
-                        "photos", "01_Fotos",
-                        "results", "02_Resultados",
-                        "characterization", "03_Caracterizacion",
-                        "incidentFiles", "90_Incidencias");
-                for (Map.Entry<String, List<FileEntry>> group : groups) {
-                    String key = group.getKey();
-                    List<FileEntry> rawFiles = group.getValue();
-                    if (key.equals("incidentFiles") && !hasIncidents && !rawFiles.isEmpty()) {
-                        throw new TestAtlasException(
-                                "Enable incidents for " + code + " before adding incident files.");
-                    }
-                    List<String> target = with(samplePath, folders.get(key));
-                    if (!key.equals("incidentFiles") || hasIncidents) {
-                        directories.add(target);
-                    }
-                    for (FileEntry raw : rawFiles) {
-                        upload(raw, key, target, files, identifiers);
-                    }
+
+                /* 02_Evidences: 00_Initial, numbered checkpoints, 99_Final. */
+                planVibrationEvidence(repository, rawSample.evidenceSets(), evidencesPath, code,
+                        modelIds, directories, files, identifiers);
+
+                /* 03_Data: everything that is not a photo. */
+                directories.add(resultsPath);
+                directories.add(characterizationPath);
+                directories.add(canoePath);
+                for (FileEntry raw : orEmpty(rawSample.results())) {
+                    upload(raw, "results", resultsPath, files, identifiers, null);
+                }
+                for (FileEntry raw : orEmpty(rawSample.characterization())) {
+                    upload(raw, "characterization", characterizationPath, files, identifiers, null);
+                }
+                for (FileEntry raw : orEmpty(rawSample.canoe())) {
+                    upload(raw, "canoe", canoePath, files, identifiers, null);
+                }
+
+                /* 04_Report: optional test_metadata.json uploaded by the user. */
+                directories.add(reportPath);
+                if (rawSample.metadata() != null) {
+                    upload(rawSample.metadata(), "metadata", reportPath, files, identifiers, null);
                 }
             }
         }
@@ -539,8 +571,83 @@ public class TestAtlasPlanner {
                 List.of());
     }
 
-    private void upload(FileEntry raw, String category, List<String> targetParts,
+    /**
+     * Evidence checkpoints of one Material Master, named with the climatic rule
+     * ({@code 00_Initial}, {@code NN_<Type>[_<Reference>]}, {@code 99_Final}).
+     * Initial and Final are mandatory and always first and last. New
+     * intermediate checkpoints are numbered after those already saved in
+     * {@code 02_Evidences}, so earlier checkpoints are never renamed. Photos keep
+     * their original names; files that are not images belong to 03_Data.
+     */
+    private void planVibrationEvidence(TestAtlasRepository repository, List<EvidenceSet> rawSets,
+            List<String> evidencesPath, String code, Set<String> modelIds, List<List<String>> directories,
             List<DraftFile> files, Set<String> identifiers) {
+        List<EvidenceSet> sets = orEmpty(rawSets);
+        if (sets.size() < 2 || sets.size() > 99) {
+            throw new TestAtlasException("Add the Initial and Final evidence checkpoints of " + code + ".");
+        }
+        Path evidencesDirectory = repository.destination(evidencesPath);
+        repository.ensureNotLink(evidencesDirectory);
+        int next = 1;
+        for (Path entry : repository.entries(evidencesDirectory)) {
+            String name = entry.getFileName().toString();
+            if (Files.isDirectory(entry) && EVIDENCE_FOLDER.matcher(name).matches()
+                    && !FIXED_EVIDENCE_FOLDERS.contains(lower(name))) {
+                next = Math.max(next, Integer.parseInt(name.substring(0, 2)) + 1);
+            }
+        }
+        Set<String> folders = new HashSet<>();
+        for (int index = 0; index < sets.size(); index++) {
+            EvidenceSet raw = sets.get(index);
+            if (raw == null) {
+                throw new TestAtlasException("Invalid evidence collection.");
+            }
+            modelId(raw.id(), modelIds);
+            String type = raw.type() == null ? "" : raw.type();
+            if (!EVIDENCE_TYPES.contains(type)) {
+                throw new TestAtlasException("Invalid evidence type.");
+            }
+            boolean first = index == 0;
+            boolean last = index == sets.size() - 1;
+            if (first != type.equals("initial") || last != type.equals("final")) {
+                throw new TestAtlasException("Initial evidence must be first and Final evidence must be last ("
+                        + code + ").");
+            }
+            String referenceType = raw.referenceType() == null || raw.referenceType().isEmpty()
+                    ? "none" : raw.referenceType();
+            if (!REFERENCE_TYPES.contains(referenceType)) {
+                throw new TestAtlasException("Invalid evidence reference type.");
+            }
+            String referenceValue = cleanOptionalText(raw.referenceValue(), 50, "Evidence reference");
+            if (!referenceType.equals("none") && referenceValue.isEmpty()) {
+                throw new TestAtlasException("An evidence reference value is required.");
+            }
+            int position = 0;
+            if (!first && !last) {
+                if (next > 98) {
+                    throw new TestAtlasException("Too many evidence checkpoints for " + code + ".");
+                }
+                position = next++;
+            }
+            String folder = evidenceFolderName(type, referenceType, referenceValue, position);
+            if (!folders.add(lower(folder))) {
+                throw new TestAtlasException("Duplicate evidence checkpoint " + folder + " for " + code + ".");
+            }
+            List<String> path = with(evidencesPath, folder);
+            directories.add(path);
+            for (FileEntry photo : orEmpty(raw.files())) {
+                upload(photo, "evidence", path, files, identifiers, null);
+            }
+        }
+    }
+
+    /**
+     * Add an uploaded file to the plan. {@code renameStem} gives the generated
+     * name (the original extension is kept); {@code null} keeps the original
+     * file name.
+     */
+    private void upload(FileEntry raw, String category, List<String> targetParts,
+            List<DraftFile> files, Set<String> identifiers, String renameStem) {
         if (raw == null) {
             throw new TestAtlasException("Select a valid " + category + " file.");
         }
@@ -552,18 +659,32 @@ public class TestAtlasPlanner {
         file.name = originalName(raw.name(), true, 255);
         file.size = validateFileSize(raw.size(), file.name);
         file.mime = raw.mime() == null ? "" : raw.mime();
+        String fileExtension = extension(file.name);
         if ((category.equals("inputs") || category.equals("sampleInputs"))
-                && !WORKBOOK_EXTENSIONS.contains(extension(file.name))) {
+                && !WORKBOOK_EXTENSIONS.contains(fileExtension)) {
             throw new TestAtlasException("Inputs workbooks must be .xlsx or .xlsm.");
         }
-        if (category.equals("photos") && !VIBRATION_IMAGE_EXTENSIONS.contains(extension(file.name))
+        if (category.equals("evidence") && !VIBRATION_IMAGE_EXTENSIONS.contains(fileExtension)
                 && !file.mime.startsWith("image/")) {
-            throw new TestAtlasException(file.name + ": select an image for Photos.");
+            throw new TestAtlasException(file.name + ": evidence checkpoints only accept images. "
+                    + "Add other files to Results, Characterization or CANoe.");
+        }
+        if (category.equals("canoe") && !CANOE_EXTENSIONS.contains(fileExtension)) {
+            throw new TestAtlasException(file.name
+                    + ": CANoe accepts .blf, .asc, .mf4, .mdf, .pcap and .pcapng logging files.");
+        }
+        if (category.equals("metadata")) {
+            if (!file.name.equals(METADATA_FILE)) {
+                throw new TestAtlasException("The metadata file must be named exactly " + METADATA_FILE + ".");
+            }
+            if (file.size > METADATA_MAX_BYTES) {
+                throw new TestAtlasException(METADATA_FILE + " is larger than 10 MB.");
+            }
         }
         file.category = category;
-        file.targetName = file.name;
+        file.targetName = renameStem == null ? file.name : folderName(renameStem + fileExtension, "File name");
         file.targetParts = targetParts;
-        file.relative = join(with(targetParts, file.name));
+        file.relative = join(with(targetParts, file.targetName));
         file.checkRelative = file.relative;
         files.add(file);
     }
@@ -575,8 +696,8 @@ public class TestAtlasPlanner {
         }
     }
 
-    private static String joinName(List<String> values, String label) {
-        String name = String.join("_", values);
+    /** A generated folder or file name must still fit a single path component. */
+    private static String folderName(String name, String label) {
         if (name.length() > 255) {
             throw new TestAtlasException(label + " is too long.");
         }

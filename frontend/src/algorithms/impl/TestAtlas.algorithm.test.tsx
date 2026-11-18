@@ -11,12 +11,20 @@ import { captureDate, exifDate, localIso } from './testAtlasCaptureDate'
 import {
     buildManifest,
     emptyTestAtlasConfig,
+    emptyVibrationEvidenceSet,
     evidenceFolderName,
     manifestKey,
     mergeSavedEvidence,
     registerFile,
     suggestedEvidenceTitle,
+    uploadList,
     validPart,
+    vibrationBatchFolder,
+    vibrationIssue,
+    vibrationProgramFolder,
+    vibrationSampleFolder,
+    vibrationTestFolderName,
+    vibrationWorkbookStem,
     type EvidenceSetConfig,
     type TestAtlasConfig,
     type TestAtlasPlan,
@@ -140,7 +148,7 @@ describe('Test Atlas strategy', () => {
         const approved = { ...reviewed, review: { ...reviewed.review, approved: [config.files[0].id] } }
         expect(testAtlas.validate?.(approved)).toEqual(['Confirm the review to enable saving.'])
         expect(testAtlas.validate?.({ ...approved, confirmed: true })).toEqual([])
-        // Editing the form after the review makes it stale; only the climatic workflow can be saved.
+        // Editing the form after the review makes it stale, including switching workflows.
         expect(testAtlas.validate?.({ ...approved, confirmed: true, testNumber: '487' })).toEqual([STEPS_PENDING])
         expect(testAtlas.validate?.({ ...approved, confirmed: true, testType: 'vibration' })).toEqual([STEPS_PENDING])
         expect(testAtlas.validate?.({ ...approved, confirmed: true, step: 4 })).toEqual([STEPS_PENDING])
@@ -219,6 +227,41 @@ describe('Test Atlas naming rules', () => {
         expect(suggestedEvidenceTitle('other', 'stage', 'Cold')).toBe('Other evidence at stage Cold')
         expect(validPart('80025 - BMW')).toBe(true)
         for (const invalid of ['', '..', 'a/b', 'CON', 'name.', 'x'.repeat(91), 'a:b']) expect(validPart(invalid)).toBe(false)
+    })
+
+    it('names the vibration hierarchy with the climatic separators and free-text field values', () => {
+        const config = { ...emptyTestAtlasConfig(), programNumber: '0000', programName: 'Ejemplo', phase: 'DV', batchName: '01 - Validacion', date: '260501' }
+        const test = { testCode: 'IN260501-01', vibrationType: 'FSweep', axis: 'Z' }
+        expect(vibrationProgramFolder(config)).toBe('0000 - Ejemplo')
+        expect(vibrationBatchFolder(config.batchName)).toBe('BATCH - 01 - Validacion')
+        expect(vibrationBatchFolder('Tanda_Validación')).toBe('BATCH - Tanda_Validación')
+        expect(vibrationTestFolderName(test)).toBe('TEST - IN260501-01 - FSweep - Z')
+        expect(vibrationSampleFolder('ABC12345')).toBe('MM - ABC12345')
+        expect(vibrationWorkbookStem(config)).toBe('260501_VB_Inputs_Ejemplo_DV_01 - Validacion')
+        expect(vibrationWorkbookStem(config, test)).toBe('260501_VB_Inputs_Ejemplo_DV_01 - Validacion_FSweep_Z')
+    })
+
+    it('requires the vibration date, Initial/Final checkpoints and checkpoint references before the review', () => {
+        const workbook = { id: crypto.randomUUID(), name: 'in.xlsx', size: 1, mime: '' }
+        const base = { ...emptyTestAtlasConfig(), testType: 'vibration' as const, programNumber: '0000', programName: 'Ejemplo', phase: 'DV', batchName: '01 - Validacion', date: '260501', inputsWorkbook: workbook }
+        const sample = { ...base.vibrationTests[0].materialMasters[0], materialMasterCode: 'ABC12345', inputsWorkbook: { ...workbook, id: crypto.randomUUID() } }
+        const config: TestAtlasConfig = { ...base, vibrationTests: [{ ...base.vibrationTests[0], testCode: 'IN260501-01', materialMasters: [sample] }] }
+        expect(vibrationIssue(config)).toBeNull()
+        expect(vibrationIssue({ ...config, date: '261341' })?.step).toBe(1)
+        expect(vibrationIssue({ ...config, date: '' })?.message).toMatch(/YYMMDD/)
+        const photo = { id: crypto.randomUUID(), name: 'a.jpg', size: 1, mime: 'image/jpeg' }
+        const checkpoint = { ...emptyVibrationEvidenceSet('incident'), referenceType: 'stage' as const, referenceValue: 'Resonance', photos: [photo] }
+        const withCheckpoint = (sets: typeof sample.evidenceSets): TestAtlasConfig => ({ ...config, vibrationTests: [{ ...config.vibrationTests[0], materialMasters: [{ ...sample, evidenceSets: sets }] }] })
+        const ok = withCheckpoint([sample.evidenceSets[0], checkpoint, sample.evidenceSets[1]])
+        expect(vibrationIssue(ok)).toBeNull()
+        expect(uploadList(ok)).toContainEqual(photo)
+        expect(vibrationIssue(withCheckpoint([sample.evidenceSets[0], { ...checkpoint, referenceValue: '' }, sample.evidenceSets[1]]))?.step).toBe(4)
+        expect(vibrationIssue(withCheckpoint([sample.evidenceSets[0], checkpoint]))?.message).toMatch(/Final evidence must be last/)
+        const manifest = buildManifest(ok)
+        if (manifest.testType !== 'vibration') throw new Error('vibration manifest expected')
+        expect(manifest.date).toBe('260501')
+        expect(manifest.tests[0].materialMasters[0].evidenceSets.map((set) => [set.type, set.referenceType, set.referenceValue, set.files.length]))
+            .toEqual([['initial', 'none', '', 0], ['incident', 'stage', 'Resonance', 1], ['final', 'none', '', 0]])
     })
 
     it('merges saved evidence folders after the user-ordered checkpoints and drops stale ones', () => {
@@ -466,7 +509,7 @@ describe('Test Atlas original interface', () => {
         vi.unstubAllGlobals()
     })
 
-    it('renders the original layout inside the tool scope and offers only the climatic workflow', () => {
+    it('renders the original layout inside the tool scope and offers climatic and vibration workflows', () => {
         vi.stubGlobal('fetch', server())
         const { container } = render(<Toolbox onRun={vi.fn()} />)
 
@@ -477,10 +520,23 @@ describe('Test Atlas original interface', () => {
         ])
         const types = Array.from(container.querySelectorAll<HTMLButtonElement>('.type-choice'))
         expect(types.map((button) => [button.querySelector('strong')?.textContent, button.disabled])).toEqual([
-            ['Climatic', false], ['Vibration', true], ['EGR valves', true], ['Wind tunnel', true],
+            ['Climatic', false], ['Vibration', false], ['EGR valves', true], ['Wind tunnel', true],
         ])
-        expect(screen.getAllByText('Coming soon')).toHaveLength(3)
+        expect(screen.getAllByText('Coming soon')).toHaveLength(2)
         expect(runButton().disabled).toBe(true)
+    })
+
+    it('opens the vibration batch workflow from the test type selector', () => {
+        vi.stubGlobal('fetch', server())
+        const { container } = render(<Toolbox onRun={vi.fn()} />)
+        const vibration = Array.from(container.querySelectorAll<HTMLButtonElement>('.type-choice'))
+            .find((button) => button.querySelector('strong')?.textContent === 'Vibration')
+        expect(vibration?.disabled).toBe(false)
+        fireEvent.click(vibration as HTMLButtonElement)
+        expect(screen.getByRole('heading', { name: 'Identify the batch' })).toBeTruthy()
+        expect(Array.from(byId('ta-stepNav').querySelectorAll('button')).map((button) => button.textContent)).toEqual([
+            '01 Test type', '02 Vibration batch', '03 Batch inputs', '04 Tests & samples', '05 Sample files', '06 Review & save',
+        ])
     })
 
     it('walks the six original steps and hands the confirmed review to the Toolbox Run', async () => {

@@ -92,7 +92,7 @@ public class TestAtlasService {
 
     private TestAtlasPlanDto toDto(TestAtlasPlan plan) {
         return new TestAtlasPlanDto(
-                repository.root().toString(),
+                repository.forType(plan.testType()).root().toString(),
                 plan.folder(),
                 plan.directories().stream().map(TestAtlasNames::join).toList(),
                 plan.existingWorkbooks().stream().map(TestAtlasNames::join).toList(),

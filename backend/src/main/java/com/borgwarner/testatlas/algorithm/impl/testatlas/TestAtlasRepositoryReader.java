@@ -43,6 +43,7 @@ import tools.jackson.databind.ObjectMapper;
 public class TestAtlasRepositoryReader {
 
     private static final Pattern CLIMATIC_TEST_PREFIX = Pattern.compile("^TEST - ", Pattern.CASE_INSENSITIVE);
+    private static final Pattern VIBRATION_BATCH_PREFIX = Pattern.compile("^BATCH - ", Pattern.CASE_INSENSITIVE);
     private static final Comparator<String> NAME_ORDER =
             String.CASE_INSENSITIVE_ORDER.thenComparing(Comparator.naturalOrder());
 
@@ -205,8 +206,10 @@ public class TestAtlasRepositoryReader {
 
     /**
      * Suggestions derived from folders already present in the repository.
-     * {@code testType} selects the climatic ({@code "Program - Name"} folders)
-     * or vibration ({@code "Program_Name"} folders) naming.
+     * {@code testType} selects the climatic or the vibration repository. Both
+     * use {@code "Program - Name"} program folders; only folders that follow the
+     * expected structure at each level are suggested (climatic
+     * {@code "TEST - "} tests, vibration {@code "BATCH - "} batches).
      */
     public TestAtlasSuggestionsDto suggestions(String testType, String query, String program, String phase) {
         String q = query == null ? "" : lower(query);
@@ -249,15 +252,16 @@ public class TestAtlasRepositoryReader {
     }
 
     private TestAtlasSuggestionsDto vibrationSuggestions(String q, String program, String phase) {
+        TestAtlasRepository repository = this.repository.vibration();
         List<ProgramSuggestionDto> programs = new ArrayList<>();
         for (Path entry : repository.entries(repository.root())) {
             String name = entry.getFileName().toString();
-            if (!Files.isDirectory(entry) || !name.contains("_")) {
+            if (!Files.isDirectory(entry) || !name.contains(" - ")) {
                 continue;
             }
-            int index = name.indexOf('_');
+            int index = name.indexOf(" - ");
             ProgramSuggestionDto suggestion = new ProgramSuggestionDto(
-                    name.substring(0, index), name.substring(index + 1), name);
+                    name.substring(0, index), name.substring(index + 3), name);
             if (lower(suggestion.number() + " " + suggestion.name()).contains(q) && programs.size() < 30) {
                 programs.add(suggestion);
             }
@@ -272,22 +276,30 @@ public class TestAtlasRepositoryReader {
             if (phase != null && !phase.isEmpty()) {
                 parts.add(safePart(phase, "phase"));
                 repository.ensureNotLink(repository.destination(parts));
-                batches = directoryNames(repository.destination(parts));
+                batches = directoryNames(repository.destination(parts)).stream()
+                        .filter(name -> VIBRATION_BATCH_PREFIX.matcher(name).find())
+                        .map(name -> VIBRATION_BATCH_PREFIX.matcher(name).replaceFirst(""))
+                        .filter(name -> lower(name).contains(q))
+                        .limit(30)
+                        .toList();
             }
         }
         return new TestAtlasSuggestionsDto(List.copyOf(programs), phases, List.of(), batches);
     }
 
-    /** Inputs workbooks detected directly in a vibration sample folder. */
+    /** Inputs workbooks already saved in the {@code 01_Inputs} folder of a vibration Material Master. */
     public List<String> sampleInputs(
             String programNumber, String programName, String phase, String batchName,
             String testCode, String testType, String axis, String materialMasterCode) {
+        TestAtlasRepository repository = this.repository.vibration();
         List<String> parts = List.of(
-                safePart(programNumber, "programNumber") + "_" + safePart(programName, "programName"),
+                safePart(programNumber, "programNumber") + " - " + safePart(programName, "programName"),
                 safePart(phase, "phase"),
-                safePart(batchName, "batchName"),
-                safePart(testCode, "testCode") + "_" + safePart(testType, "testType") + "_" + safePart(axis, "axis"),
-                safePart(materialMasterCode, "materialMasterCode"));
+                TestAtlasPlanner.BATCH_PREFIX + safePart(batchName, "batchName"),
+                TestAtlasPlanner.TEST_PREFIX + safePart(testCode, "testCode") + " - " + safePart(testType, "testType")
+                        + " - " + safePart(axis, "axis"),
+                TestAtlasPlanner.MM_PREFIX + safePart(materialMasterCode, "materialMasterCode"),
+                "01_Inputs");
         Path folder = repository.destination(parts);
         repository.ensureNotLink(folder);
         return repository.entries(folder).stream()

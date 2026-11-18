@@ -126,14 +126,14 @@ class TestAtlasControllerTest {
 
     @Test
     void lookupsForwardQueryParametersAndServePhotos(@TempDir Path temp) throws Exception {
-        when(service.suggestions("vibration", "ejem", "0000_Ejemplo", "01_DV")).thenReturn(new TestAtlasSuggestionsDto(
-                List.of(new TestAtlasSuggestionsDto.ProgramSuggestionDto("0000", "Ejemplo", "0000_Ejemplo")),
-                List.of("01_DV"), List.of(), List.of("01_Tanda_Validacion")));
+        when(service.suggestions("vibration", "ejem", "0000 - Ejemplo", "DV")).thenReturn(new TestAtlasSuggestionsDto(
+                List.of(new TestAtlasSuggestionsDto.ProgramSuggestionDto("0000", "Ejemplo", "0000 - Ejemplo")),
+                List.of("DV"), List.of(), List.of("01 - Validacion")));
         mvc.perform(get("/api/test-atlas/suggestions").param("testType", "vibration").param("q", "ejem")
-                        .param("program", "0000_Ejemplo").param("phase", "01_DV"))
+                        .param("program", "0000 - Ejemplo").param("phase", "DV"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.programs[0].folder").value("0000_Ejemplo"))
-                .andExpect(jsonPath("$.batches[0]").value("01_Tanda_Validacion"));
+                .andExpect(jsonPath("$.programs[0].folder").value("0000 - Ejemplo"))
+                .andExpect(jsonPath("$.batches[0]").value("01 - Validacion"));
 
         when(service.existingInputs("90001", "Audi", "PV", "512")).thenReturn(new TestAtlasWorkbooksDto(List.of("261006_CL_Inputs_Audi_PV_512.xlsx")));
         mvc.perform(get("/api/test-atlas/climatic/existing-inputs").param("programNumber", "90001")

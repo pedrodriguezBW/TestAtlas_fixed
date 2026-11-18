@@ -83,46 +83,98 @@ class TestAtlasTest {
     // ------------------------------------------------------------------ vibration
 
     @Test
-    void vibrationHierarchyWithMultipleTestsAndSamplesBothWorkbooksOriginalNamesAndOptionalIncidents() throws IOException {
+    void vibrationHierarchyUsesClimaticSeparatorsAndTheFourClimaticBlocksBelowTheMaterialMaster() throws IOException {
         VibRequest request = vibration("0000");
         VibSample a = request.tests.get(0).materialMasters.get(0);
-        a.photos.add(upload("screenshot.png", "image/png")); // No capture metadata.
+        a.evidenceSets.clear();
+        a.evidenceSets.addAll(List.of(
+                evidence("initial", "", List.of(upload("IMG_0001.JPG", "image/jpeg")), ""),
+                evidence("planned_inspection", "", List.of(upload("screenshot.png", "image/png")), "", "cycles", "250", null),
+                evidence("incident", "", List.of(upload("resonance.png", "image/png")), "", "stage", "Resonance", null),
+                evidence("final", "", List.of(upload("final view.heic")), "")));
         a.results.addAll(List.of(upload("results.custom-format"), upload("measurements.csv"),
-                upload("result  original name.log"), upload("long-name-".repeat(11) + ".csv")));
+                upload("alarm log.txt"), upload("long-name-".repeat(11) + ".csv")));
         a.characterization.addAll(List.of(upload("before.swp2"), upload("comparison.pdf")));
+        a.canoe.add(upload("bus.blf"));
+        byte[] json = "{\"test\": \"IN260501-01\"}".getBytes(UTF_8);
+        a.metadata = new FileEntry(UUID.randomUUID().toString(), "test_metadata.json", null, (long) json.length,
+                "application/json", null, null);
         VibSample b = sample("14123456A");
-        b.hasIncidents = true;
-        b.incidentFiles.add(upload("parada_shaker.txt"));
         request.tests.get(0).materialMasters.add(b);
         VibTest second = new VibTest("IN260501-02", "Custom Sweep", "XY");
         second.materialMasters = new ArrayList<>(List.of(sample("P1234567")));
         request.tests.add(second);
 
         TestAtlasPlan p = plan(request.build());
-        String mm = String.join("\\", sampleParts(request));
-        assertEquals("0000_Ejemplo\\01_DV\\01_Tanda_Validacion", p.folder());
-        assertEquals(p.folder() + "\\HojaInputs.xlsm",
+        String batch = "0000 - Ejemplo\\DV\\BATCH - 01 - Validacion";
+        String mm = batch + "\\TEST - IN260501-01 - FSweep - Z\\MM - ABC12345";
+        assertEquals(batch, p.folder());
+        assertEquals(mm, String.join("\\", sampleParts(request)));
+        assertEquals(batch + "\\260501_VB_Inputs_Ejemplo_DV_01 - Validacion.xlsm",
                 p.files().stream().filter(f -> f.category().equals("inputs")).findFirst().orElseThrow().relative());
-        assertTrue(p.files().stream().anyMatch(f -> f.relative().equals(mm + "\\SampleInputs.xlsm")));
-        assertTrue(p.files().stream().anyMatch(f -> f.relative().equals(mm + "\\03_Caracterizacion\\before.swp2")));
-        assertEquals(1, p.directories().stream().filter(d -> d.getLast().equals("90_Incidencias")).count());
+        List<String> relatives = p.files().stream().map(PlannedFile::relative).toList();
+        for (String expected : List.of(
+                mm + "\\01_Inputs\\260501_VB_Inputs_Ejemplo_DV_01 - Validacion_FSweep_Z.xlsm",
+                mm + "\\02_Evidences\\00_Initial\\IMG_0001.JPG",
+                mm + "\\02_Evidences\\01_Inspection_250Cycles\\screenshot.png",
+                mm + "\\02_Evidences\\02_Incident_Stage-Resonance\\resonance.png",
+                mm + "\\02_Evidences\\99_Final\\final view.heic",
+                mm + "\\03_Data\\01_Results\\alarm log.txt",
+                mm + "\\03_Data\\02_Characterization\\before.swp2",
+                mm + "\\03_Data\\03_CANoe\\bus.blf",
+                mm + "\\04_Report\\test_metadata.json",
+                batch + "\\TEST - IN260501-02 - Custom Sweep - XY\\MM - P1234567\\01_Inputs\\"
+                        + "260501_VB_Inputs_Ejemplo_DV_01 - Validacion_Custom Sweep_XY.xlsm")) {
+            assertTrue(relatives.contains(expected), expected);
+        }
+        assertEquals(0, p.evidenceSets().size()); // vibration checkpoints have no evidence.json
         assertEquals(List.of(), list(repositoryDir));
 
-        String uploadId = stage(p);
+        String uploadId = stage(p, json);
         assertEquals(List.of(), list(repositoryDir)); // All uploads are still staged elsewhere.
         Out_TestAtlas result = commit(request.build(), uploadId, List.of());
         assertEquals(p.files().size(), result.saved().size());
         for (PlannedFile file : p.files()) {
-            assertArrayEquals(BYTES, Files.readAllBytes(absolute(file.relative())));
+            assertArrayEquals(file.category().equals("metadata") ? json : BYTES,
+                    Files.readAllBytes(absolute(file.relative())));
         }
         for (List<String> folder : p.directories()) {
             assertTrue(Files.isDirectory(absolute(TestAtlasNames.join(folder))));
         }
-        assertEquals(List.of("01_Fotos", "02_Resultados", "03_Caracterizacion", "SampleInputs.xlsm"), list(absolute(mm)));
-        assertEquals(List.of(), list(absolute(p.folder() + "\\IN260501-02_Custom Sweep_XY\\P1234567\\01_Fotos")));
-        assertFalse(list(absolute(p.folder())).contains("ABC12345"));
-        assertEquals(repositoryDir.resolve(Path.of("0000_Ejemplo", "01_DV", "01_Tanda_Validacion")).toString(),
+        assertEquals(List.of("01_Inputs", "02_Evidences", "03_Data", "04_Report"), list(absolute(mm)));
+        assertEquals(List.of("00_Initial", "01_Inspection_250Cycles", "02_Incident_Stage-Resonance", "99_Final"),
+                list(absolute(mm + "\\02_Evidences")));
+        assertEquals(List.of("01_Results", "02_Characterization", "03_CANoe"), list(absolute(mm + "\\03_Data")));
+        // A sample without photos still gets its Initial and Final checkpoints and every block.
+        String other = batch + "\\TEST - IN260501-02 - Custom Sweep - XY\\MM - P1234567";
+        assertEquals(List.of("00_Initial", "99_Final"), list(absolute(other + "\\02_Evidences")));
+        assertEquals(List.of(), list(absolute(other + "\\04_Report")));
+        assertEquals(List.of("260501_VB_Inputs_Ejemplo_DV_01 - Validacion.xlsm", "TEST - IN260501-01 - FSweep - Z",
+                "TEST - IN260501-02 - Custom Sweep - XY"), list(absolute(batch)));
+        assertEquals(repositoryDir.resolve(Path.of("0000 - Ejemplo", "DV", "BATCH - 01 - Validacion")).toString(),
                 result.folderPath());
+    }
+
+    @Test
+    void newCheckpointsAreNumberedAfterTheSavedOnesWhichAreNeverRenamed() throws IOException {
+        VibRequest first = vibration("0000");
+        first.tests.get(0).materialMasters.get(0).evidenceSets.add(1,
+                evidence("planned_inspection", "", List.of(upload("a.jpg", "image/jpeg")), "", "cycles", "250", null));
+        commit(first.build(), stage(plan(first.build())), List.of());
+
+        VibRequest next = vibration("0000");
+        VibSample s = next.tests.get(0).materialMasters.get(0);
+        s.inputsWorkbook = null;
+        s.existingWorkbook = "260501_VB_Inputs_Ejemplo_DV_01 - Validacion_FSweep_Z.xlsm";
+        s.evidenceSets.add(1, evidence("incident", "", List.of(upload("b.jpg", "image/jpeg")), "", "stage", "Resonance", null));
+        s.evidenceSets.add(2, evidence("restart", ""));
+        TestAtlasPlan p = plan(next.build());
+        commit(next.build(), stage(p), conflicts(p));
+        String evidences = String.join("\\", sampleParts(next)) + "\\02_Evidences";
+        assertEquals(List.of("00_Initial", "01_Inspection_250Cycles", "02_Incident_Stage-Resonance", "03_Restart", "99_Final"),
+                list(absolute(evidences)));
+        assertEquals(List.of("a.jpg"), list(absolute(evidences + "\\01_Inspection_250Cycles")));
+        assertEquals(List.of("b.jpg"), list(absolute(evidences + "\\02_Incident_Stage-Resonance")));
     }
 
     @Test
@@ -130,27 +182,28 @@ class TestAtlasTest {
         // The batch saved by the first scenario.
         VibRequest first = vibration("0000");
         commit(first.build(), stage(plan(first.build())), List.of());
+        String saved = "260501_VB_Inputs_Ejemplo_DV_01 - Validacion_FSweep_Z.xlsm";
 
         VibRequest r = vibration("0000");
         VibSample s = r.tests.get(0).materialMasters.get(0);
         s.inputsWorkbook = null;
-        s.existingWorkbook = "SampleInputs.xlsm";
+        s.existingWorkbook = saved;
         VibTest t = r.tests.get(0);
         List<String> found = reader.sampleInputs(r.programNumber, r.programName, r.phase, r.batchName,
                 t.testCode, t.testType, t.axis, s.materialMasterCode);
-        assertEquals(List.of("SampleInputs.xlsm"), found);
+        assertEquals(List.of(saved), found);
 
         s.results.add(upload("additional.log"));
         TestAtlasPlan p = plan(r.build());
         assertEquals(1, p.existingWorkbooks().size());
         assertEquals(0, p.files().stream().filter(f -> f.category().equals("sampleInputs")).count());
         commit(r.build(), stage(p), conflicts(p));
-        Path workbook = absolute(String.join("\\", sampleParts(r)) + "\\" + s.existingWorkbook);
+        Path workbook = absolute(String.join("\\", sampleParts(r)) + "\\01_Inputs\\" + s.existingWorkbook);
         assertArrayEquals(BYTES, Files.readAllBytes(workbook));
 
         s.existingWorkbook = "missing.xlsx";
         assertFails(() -> plan(r.build()), 400, "(?i)inputs workbook");
-        s.existingWorkbook = "SampleInputs.xlsm";
+        s.existingWorkbook = saved;
         TestAtlasPlan p2 = plan(r.build());
         String staged = stage(p2);
         Files.move(workbook, Path.of(workbook + ".backup"));
@@ -165,18 +218,48 @@ class TestAtlasTest {
     }
 
     @Test
-    void vibrationSuggestionsFindTheExistingProgramPhaseAndBatch() {
+    void vibrationSuggestionsOnlyOfferFoldersWithTheExpectedStructure() throws IOException {
         VibRequest first = vibration("0000");
         commit(first.build(), stage(plan(first.build())), List.of());
+        // Folders saved with the previous naming stay as they are and are not suggested.
+        Files.createDirectories(repositoryDir.resolve(Path.of("0000_Ejemplo", "01_DV", "01_Tanda_Validacion")));
+        Files.createDirectories(repositoryDir.resolve(Path.of("0000 - Ejemplo", "DV", "02_Tanda_Antigua")));
 
-        TestAtlasSuggestionsDto r = reader.suggestions("vibration", "ejem", "0000_Ejemplo", "01_DV");
-        assertEquals(List.of(new ProgramSuggestionDto("0000", "Ejemplo", "0000_Ejemplo")), r.programs());
-        assertEquals(List.of("01_DV"), r.phases());
-        assertEquals(List.of("01_Tanda_Validacion"), r.batches());
+        TestAtlasSuggestionsDto r = reader.suggestions("vibration", "ejem", "0000 - Ejemplo", "DV");
+        assertEquals(List.of(new ProgramSuggestionDto("0000", "Ejemplo", "0000 - Ejemplo")), r.programs());
+        assertEquals(List.of("DV"), r.phases());
+        assertEquals(List.of("01 - Validacion"), reader.suggestions("vibration", "valid", "0000 - Ejemplo", "DV").batches());
+        assertEquals(List.of("01 - Validacion"), reader.suggestions("vibration", "", "0000 - Ejemplo", "DV").batches());
     }
 
     @Test
-    void invalidHierarchyDuplicateCodesInvalidWorkbooksAndAmbiguousFilenamesAreRejected() {
+    void vibrationTestsAreSavedInTheirOwnRepositoryRoot(@TempDir Path climaticRoot) throws IOException {
+        TestAtlasRepository roots = new TestAtlasRepository(climaticRoot.toString(), repositoryDir.toString());
+        reader = new TestAtlasRepositoryReader(roots, mapper);
+        planner = new TestAtlasPlanner(roots, reader);
+        strategy = new Strategy_TestAtlas(roots, planner, reader, staging, mapper);
+        service = new TestAtlasService(roots, planner, reader, staging);
+
+        VibRequest r = vibration("0000");
+        assertEquals(repositoryDir.toAbsolutePath().normalize().toString(), service.plan(r.build()).root());
+        Out_TestAtlas saved = commit(r.build(), stage(plan(r.build())), List.of());
+        assertEquals(repositoryDir.resolve(Path.of("0000 - Ejemplo", "DV", "BATCH - 01 - Validacion")).toString(),
+                saved.folderPath());
+        assertEquals(List.of(), list(climaticRoot));
+        assertEquals(List.of("01 - Validacion"),
+                reader.suggestions("vibration", "", "0000 - Ejemplo", "DV").batches());
+
+        ClimRequest climatic = climatic("11111", "Repo", "DV", "1", "261013");
+        climatic.files.add(file("in.xlsx", "inputs"));
+        climatic.evidenceSets.addAll(sets());
+        assertEquals(climaticRoot.toAbsolutePath().normalize().toString(), service.plan(climatic.build()).root());
+        commit(climatic.build(), stage(plan(climatic.build())), List.of());
+        assertEquals(List.of("11111 - Repo"), list(climaticRoot));
+        assertEquals(List.of("0000 - Ejemplo"), list(repositoryDir));
+    }
+
+    @Test
+    void invalidHierarchyDuplicateCodesInvalidFilesAndCheckpointsAreRejected() {
         record Case(Consumer<VibRequest> change, String message) {
         }
         List<Case> cases = List.of(
@@ -191,8 +274,17 @@ class TestAtlasTest {
                         List.of(upload("duplicate.csv"), upload("DUPLICATE.csv"))), "same destination"),
                 new Case(r -> r.inputsWorkbook = upload("inputs.csv"), "xlsx"),
                 new Case(r -> r.tests.get(0).materialMasters.get(0).inputsWorkbook = null, "inputs workbook"),
-                new Case(r -> r.tests.get(0).materialMasters.get(0).photos.add(upload("not-image.txt")), "image"),
-                new Case(r -> r.tests.get(0).materialMasters.get(0).incidentFiles.add(upload("alarm.txt")), "Enable incidents"),
+                new Case(r -> r.date = "2605", "YYMMDD"),
+                new Case(r -> r.date = "261341", "real test date"),
+                new Case(r -> r.tests.get(0).materialMasters.get(0).evidenceSets.set(0,
+                        evidence("initial", "", List.of(upload("alarm.txt")), "")), "only accept images"),
+                new Case(r -> r.tests.get(0).materialMasters.get(0).evidenceSets.remove(1), "Initial and Final"),
+                new Case(r -> r.tests.get(0).materialMasters.get(0).evidenceSets.add(evidence("other", "")),
+                        "Final evidence must be last"),
+                new Case(r -> r.tests.get(0).materialMasters.get(0).evidenceSets.add(1,
+                        evidence("incident", "", List.of(), "", "stage", "", null)), "reference value"),
+                new Case(r -> r.tests.get(0).materialMasters.get(0).canoe.add(upload("trace.txt")), "CANoe accepts"),
+                new Case(r -> r.tests.get(0).materialMasters.get(0).metadata = upload("metadata.json"), "named exactly"),
                 new Case(r -> r.nullTest = true, "Invalid vibration test"),
                 new Case(r -> r.tests.get(0).nullSample = true, "Invalid Material Master"));
         for (Case item : cases) {
@@ -200,7 +292,7 @@ class TestAtlasTest {
             item.change().accept(request);
             assertFails(() -> plan(request.build()), 400, item.message());
         }
-        assertFalse(Files.exists(repositoryDir.resolve("INVALID_Ejemplo")));
+        assertFalse(Files.exists(repositoryDir.resolve("INVALID - Ejemplo")));
     }
 
     @Test
@@ -231,12 +323,12 @@ class TestAtlasTest {
 
     @Test
     void existingFilesCannotBecomeDirectoriesAndLinksCannotRedirectVibrationSaves() throws IOException {
-        Files.writeString(repositoryDir.resolve("OCCUPIED_Ejemplo"), "ordinary file");
+        Files.writeString(repositoryDir.resolve("OCCUPIED - Ejemplo"), "ordinary file");
         assertFails(() -> plan(vibration("OCCUPIED").build()), 400, "occupies");
 
         Path target = Files.createTempDirectory(repositoryDir, "link-target-");
         try {
-            Files.createSymbolicLink(repositoryDir.resolve("LINKED_Ejemplo"), target);
+            Files.createSymbolicLink(repositoryDir.resolve("LINKED - Ejemplo"), target);
         } catch (IOException | UnsupportedOperationException | SecurityException exception) {
             Assumptions.abort("Symbolic links cannot be created on this machine: " + exception.getMessage());
         }
@@ -488,8 +580,10 @@ class TestAtlasTest {
         List<String> messages = new ArrayList<>();
         VibRequest request = vibration("0000");
         TestAtlasPlan p = plan(request.build());
-        assertEquals(6, p.directories().size()); // batch, test, sample, 01_Fotos, 02_Resultados, 03_Caracterizacion
-        assertEquals(2, p.files().size());       // HojaInputs.xlsm, SampleInputs.xlsm
+        // batch, test, sample, 01_Inputs, 02_Evidences, 00_Initial, 99_Final, 01_Results,
+        // 02_Characterization, 03_CANoe, 04_Report
+        assertEquals(11, p.directories().size());
+        assertEquals(2, p.files().size());       // batch and sample inputs workbooks
         assertEquals(0, p.evidenceSets().size());
         Conf_TestAtlas config = withUpload(request.build(), stage(p), List.of());
         strategy.execute(config, (current, total, message) -> messages.add(current + "/" + total + " " + message));
@@ -506,8 +600,8 @@ class TestAtlasTest {
         for (PlannedFile file : p.files()) {
             expected.add(++current + "/" + total + " Saved " + file.relative());
         }
-        assertEquals(10, total);
-        assertEquals(11, messages.size());
+        assertEquals(15, total);
+        assertEquals(16, messages.size());
         assertEquals(expected, messages);
 
         Conf_TestAtlas unknown = new Conf_TestAtlas("egr", "1", "X", "DV", null, null, null, null, null, null, null, null, null);
@@ -668,8 +762,9 @@ class TestAtlasTest {
 
     private static List<String> sampleParts(VibRequest r) {
         VibTest t = r.tests.get(0);
-        return List.of(r.programNumber + "_" + r.programName, r.phase, r.batchName,
-                t.testCode + "_" + t.testType + "_" + t.axis, t.materialMasters.get(0).materialMasterCode);
+        return List.of(r.programNumber + " - " + r.programName, r.phase, "BATCH - " + r.batchName,
+                "TEST - " + t.testCode + " - " + t.testType + " - " + t.axis,
+                "MM - " + t.materialMasters.get(0).materialMasterCode);
     }
 
     /** Mutable climatic manifest, mirroring the JavaScript fixture objects. */
@@ -700,15 +795,16 @@ class TestAtlasTest {
     private static final class VibRequest {
         final String programNumber;
         final String programName = "Ejemplo";
-        final String phase = "01_DV";
-        final String batchName = "01_Tanda_Validacion";
+        final String phase = "DV";
+        final String batchName = "01 - Validacion";
+        String date = "260501";
         FileEntry inputsWorkbook = upload("HojaInputs.xlsm");
         final List<VibTest> tests = new ArrayList<>();
         boolean nullTest;
 
         VibRequest(String programNumber) {
             this.programNumber = programNumber;
-            tests.add(new VibTest("IN260501-01", "FSweep", "X"));
+            tests.add(new VibTest("IN260501-01", "FSweep", "Z"));
         }
 
         Conf_TestAtlas build() {
@@ -718,7 +814,7 @@ class TestAtlasTest {
             } else {
                 tests.forEach(test -> built.add(test.build()));
             }
-            return new Conf_TestAtlas("vibration", programNumber, programName, phase, null, null, null, null,
+            return new Conf_TestAtlas("vibration", programNumber, programName, phase, null, date, null, null,
                     batchName, inputsWorkbook, built, null, null);
         }
     }
@@ -754,19 +850,20 @@ class TestAtlasTest {
         String materialMasterCode;
         FileEntry inputsWorkbook = upload("SampleInputs.xlsm");
         String existingWorkbook = "";
-        final List<FileEntry> photos = new ArrayList<>();
+        final List<EvidenceSet> evidenceSets = new ArrayList<>(sets());
         final List<FileEntry> results = new ArrayList<>();
         final List<FileEntry> characterization = new ArrayList<>();
-        boolean hasIncidents;
-        final List<FileEntry> incidentFiles = new ArrayList<>();
+        final List<FileEntry> canoe = new ArrayList<>();
+        FileEntry metadata;
 
         VibSample(String materialMasterCode) {
             this.materialMasterCode = materialMasterCode;
         }
 
         MaterialMaster build() {
-            return new MaterialMaster(id, materialMasterCode, hasIncidents, inputsWorkbook, existingWorkbook,
-                    List.copyOf(photos), List.copyOf(results), List.copyOf(characterization), List.copyOf(incidentFiles));
+            return new MaterialMaster(id, materialMasterCode, inputsWorkbook, existingWorkbook,
+                    List.copyOf(evidenceSets), List.copyOf(results), List.copyOf(characterization),
+                    List.copyOf(canoe), metadata);
         }
     }
 }
